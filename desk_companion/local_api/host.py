@@ -30,6 +30,16 @@ class HeadlessApp(App):
         self._delta_sink: Callable[[str], None] | None = None
         self._status_sink: Callable[[str], None] | None = None
         self._tasks = None
+        self._collaboration = None
+        self._collaboration_lock = threading.Lock()
+
+    @property
+    def collaboration(self):
+        with self._collaboration_lock:
+            if self._collaboration is None:
+                from ..collaboration import Collaboration
+                self._collaboration = Collaboration()
+            return self._collaboration
 
     @property
     def tasks(self):

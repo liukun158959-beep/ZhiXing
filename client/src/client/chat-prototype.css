@@ -127,6 +127,13 @@
 .cp-progress { height: 2px; background: hsl(var(--foreground) / .07); overflow: hidden; border-radius: 2px; }
 .cp-progress span { display: block; height: 100%; background: var(--cp-accent); transition: width .3s; }
 .cp-task-step { font-size: 10px; color: var(--cp-muted); margin: 10px 0; }
+.cp-run-usage { font-size: 9px; color: var(--cp-muted); margin: 7px 0; overflow-wrap: anywhere; }
+.cp-state-failed, .cp-state-timed_out, .cp-state-interrupted { color: #ce857c; }
+.cp-connect { padding: 60px; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; }
+.cp-connect > span { color: hsl(var(--primary)); font-size: 11px; letter-spacing: 2px; }
+.cp-connect h1 { font-size: 26px; margin: 20px 0; }
+.cp-connect p { color: hsl(var(--muted-foreground)); margin-bottom: 24px; }
+.cp-connect button, .cp-connect a { border: 1px solid hsl(var(--border)); border-radius: 6px; padding: 8px 14px; margin-right: 14px; font-size: 12px; }
 .cp-update-receipt { font-size: 9px; color: var(--cp-accent); margin: 5px 0; }
 .cp-task-actions { display: flex; justify-content: space-between; gap: 10px; font-size: 10px; padding-top: 5px; }
 .cp-task-actions button:first-child { color: var(--cp-accent); }

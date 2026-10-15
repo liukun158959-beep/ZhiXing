@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Sampling } from "./sampling";
 
-export type BackendInfo = { port: number; token: string };
+export type BackendInfo = { port: number; token: string; scope?: "collaboration" };
 
 export type ChatItem = {
   role: string;
@@ -41,7 +41,7 @@ export async function backendInfo(): Promise<BackendInfo> {
 }
 
 function wsUrl(info: BackendInfo): string {
-  return `ws://127.0.0.1:${info.port}/ws?token=${info.token}`;
+  return `ws://127.0.0.1:${info.port}/${info.scope === "collaboration" ? "collaboration" : "ws"}?token=${encodeURIComponent(info.token)}`;
 }
 
 export type StreamHandlers = {

@@ -23,6 +23,7 @@ from .host import HeadlessApp
 # 白名单：bridge 上可无头调用的数据方法。窗口/UI 类（close_bubble/fit_card/
 # open_url/ask_today/ask_logs/close_board/send_chat）与流式（send_board_chat）不在此。
 RPC_METHODS = frozenset({
+    "load_collaboration", "collaboration_action",
     "terminal_status", "terminal_start", "terminal_list", "terminal_read", "terminal_input", "terminal_cancel",
     "terminal_files", "terminal_import_files", "terminal_preview_file",
     "load_video_login", "save_video_login", "clear_video_login",
@@ -81,7 +82,7 @@ def _health(connection, request):
         return _pet_asset(connection, request.path)
     if request.path.startswith("/news-cover/"):
         return _news_cover(connection, request.path)
-    if request.path.startswith("/ws"):
+    if request.path.startswith("/ws") or request.path.startswith("/collaboration?"):
         return None
     return connection.respond(404, "not found\n")
 
@@ -165,7 +166,7 @@ def _dispatch(method: str, args: dict) -> dict:
             from ..agent_debug import context
             with context(session=HOST.state.session_id, channel="backend"):
                 return target(**kwargs)
-        if method.startswith("terminal_") or method in {"check_updates", "list_agent_tasks", "get_agent_task", "cancel_agent_task", "continue_agent_task", "save_agent_task_settings", "load_task_progress",
+        if method.startswith("terminal_") or method in {"load_collaboration", "collaboration_action", "check_updates", "list_agent_tasks", "get_agent_task", "cancel_agent_task", "continue_agent_task", "save_agent_task_settings", "load_task_progress",
                       "list_debug_calls", "get_debug_call", "set_debug_recording", "explain_debug_call",
                       "load_video_settings", "save_video_settings", "list_task_videos", "export_task_video",
                       "load_wiki_connection", "save_wiki_connection",
@@ -195,7 +196,13 @@ async def _handler(ws):
     from urllib.parse import parse_qs, urlsplit
     req_path = ws.request.path if ws.request else ""
     parts = urlsplit(req_path)
-    if parts.path != "/ws" or (TOKEN and parse_qs(parts.query).get("token", [""])[0] != TOKEN):
+    from ..collaboration_access import preview_allowed
+    from ..collaboration import METHODS as COLLABORATION_METHODS
+    preview = parts.path == "/collaboration"
+    token = parse_qs(parts.query).get("token", [""])[0]
+    origin = ws.request.headers.get("Origin", "") if ws.request else ""
+    authorized = preview_allowed(token, origin) if preview else parts.path == "/ws" and (not TOKEN or hmac.compare_digest(token.encode(), TOKEN.encode()))
+    if not authorized:
         await ws.close(code=4401, reason="bad token")
         return
     async for raw in ws:
@@ -205,6 +212,9 @@ async def _handler(ws):
             await ws.send(json.dumps({"type": "error", "data": "非法 JSON"}))
             continue
         mtype = msg.get("type")
+        if preview and (not preview_allowed(token, origin) or mtype != "rpc" or msg.get("method") not in COLLABORATION_METHODS):
+            await ws.send(json.dumps({"type": "error", "data": "此浏览器连接仅允许有效期内的协作聊天操作。"}))
+            continue
         if mtype == "rpc":
             method = str(msg.get("method", ""))
             args = msg.get("args") or {}
@@ -347,6 +357,8 @@ async def main() -> None:
         await scheduler
         if HOST._tasks is not None:
             HOST._tasks.shutdown()
+        if HOST._collaboration is not None:
+            await asyncio.to_thread(HOST._collaboration.shutdown)
         from ..terminal import manager
         await asyncio.to_thread(manager().shutdown)
         await asyncio.to_thread(HOST.feishu_agent.stop, False)

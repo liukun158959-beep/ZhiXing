@@ -17,6 +17,13 @@ def main():
 
     # Atlas renderer、第三方库的调试输出不能混入事件协议。
     with contextlib.redirect_stdout(sys.stderr):
+        if request.get("workflow") == "collaboration":
+            from .collaboration_worker import execute
+            try:
+                execute(request, emit)
+            except Exception as exc:
+                emit("failure", {"type": type(exc).__name__, "message": getattr(exc, "public_message", "协作执行失败（" + type(exc).__name__ + "），请查看调用记录、模型配置或网络。未执行外部写入。")})
+            return
         if request.get("workflow") == "debug_explain":
             from .agent_debug import execute_explanation
             try:

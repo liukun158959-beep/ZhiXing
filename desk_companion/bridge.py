@@ -12,6 +12,12 @@ class Bridge:
         from .onboarding import status
         return status()
 
+    def load_collaboration(self) -> dict:
+        return self._host.collaboration.snapshot()
+
+    def collaboration_action(self, action: dict) -> dict:
+        return self._host.collaboration.action(action)
+
     def terminal_status(self, refresh=False, distro=None):
         from .terminal import manager
         return manager().status(refresh, distro)

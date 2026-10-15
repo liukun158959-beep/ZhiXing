@@ -70,6 +70,15 @@ class TaskTests(unittest.TestCase):
         b = self.manager.wait(second)
         self.assertGreaterEqual(b["started"], a["ended"])
 
+    def test_stable_submission_key_never_starts_the_same_work_twice(self):
+        first = self.manager.submit("slow", "stable-session", "collaboration", submission_key="stable-key")
+        second = self.manager.submit("slow", "stable-session", "collaboration", submission_key="stable-key")
+        self.assertEqual(first, second)
+        with self.assertRaises(ValueError):
+            self.manager.submit("different", "stable-session", "collaboration", submission_key="stable-key")
+        self.manager.wait(first)
+        self.assertEqual(len(self.manager.list()["items"]), 1)
+
     def test_hard_call_timeout_keeps_partial(self):
         self.manager.settings.update(call_timeout=.2, task_timeout=3)
         started = time.monotonic()

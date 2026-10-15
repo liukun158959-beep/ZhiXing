@@ -60,15 +60,24 @@ class TaskManager:
             self.cv.notify_all()
         return {"ok": True, "settings": self.settings}
 
-    def submit(self, text, session, channel="desktop", source=None, callback=None, task_limits=None, **request):
+    def submit(self, text, session, channel="desktop", source=None, callback=None, task_limits=None, submission_key="", **request):
         if not isinstance(text, str) or not text.strip() or len(text) > 200000:
             raise ValueError("请填写有效问题。")
         if not isinstance(session, str) or not session:
             raise ValueError("缺少会话。")
-        task_id = uuid.uuid4().hex
+        if not isinstance(submission_key, str) or len(submission_key) > 200:
+            raise ValueError("任务去重编号无效。")
+        task_id = uuid.uuid5(uuid.NAMESPACE_URL, "tebb-task:" + submission_key).hex if submission_key else uuid.uuid4().hex
         with self.cv:
             if self.stopped:
                 raise RuntimeError("桌宠正在退出。")
+            if submission_key:
+                with self.db() as db:
+                    existing = db.execute("SELECT text,session,channel FROM tasks WHERE id=?", (task_id,)).fetchone()
+                if existing:
+                    if tuple(existing) != (text, session, channel):
+                        raise ValueError("任务去重编号已用于其他任务。")
+                    return task_id
             limits = {**self.settings, **(task_limits or {})}
             from .video_analysis import initial_video_url
             video_url = request.get("video_url") or (initial_video_url(text) if not request.get("resume_note")
@@ -222,6 +231,9 @@ class TaskManager:
                         if kind == "result":
                             outcome["answer"] = str(data)
                             self.update(task_id, answer=outcome["answer"])
+                        elif kind == "answer_reset":
+                            self.update(task_id, answer="")
+                            self.event(task_id, kind, data)
                         elif kind == "failure":
                             outcome["error"] = data.get("message", "任务失败") if isinstance(data, dict) else str(data)
                             outcome["timed_out"] = isinstance(data, dict) and "Timeout" in data.get("type", "")
@@ -280,8 +292,9 @@ class TaskManager:
         except Exception:
             self.finish(task_id, "failed", "无法启动独立任务，请检查后端日志或重启桌宠。")
         finally:
-            from .terminal import manager
-            manager().cancel_task(task_id)
+            if row["channel"] != "collaboration":
+                from .terminal import manager
+                manager().cancel_task(task_id)
             if tree:
                 tree.close()
             if process:
@@ -293,6 +306,8 @@ class TaskManager:
                 self.cv.notify_all()
 
     def _save_partial(self, row, reason):
+        if row["channel"] == "collaboration":
+            return  # Collaboration owns its private history and partial results.
         from .memory import append_chat
         value = self.get(row["id"], False)
         if value["answer"]:
