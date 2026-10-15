@@ -82,7 +82,7 @@ export function AutomationPane({ info, debug = false }: { info: BackendInfo | nu
   const buttonClass = "rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary disabled:opacity-40";
   return <section className="mt-8 rounded-xl border border-border bg-card/60 p-5" data-testid="automation-pane">
     <h2 className="text-lg font-semibold">大厂开源与技术动向</h2>
-    <p className="mt-2 text-sm text-muted-foreground">每天精选 5 条国内外大厂的 AI 开源项目与技术动向。群卡片简述，知识库文档展开技术要点、实践价值和局限，英文标题附中文译名。知行需保持运行。</p>
+    <p className="mt-2 text-sm text-muted-foreground">每天精选 5 条国内外大厂的 AI 开源项目与技术动向。群卡片简述，知识库文档展开技术要点、实践价值和局限，英文标题附中文译名。tebb 需保持运行。</p>
     {form && <details className="mt-4" open={!form.wiki_url || !form.base_url}>
       <summary className="cursor-pointer text-sm font-medium">采集主题和飞书位置</summary>
       <div className="mt-3 grid gap-3 md:grid-cols-2">

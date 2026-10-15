@@ -22,7 +22,7 @@ class RemoteError(RuntimeError):
 
 
 def json_request(url, *, method="GET", data=None, token="", content_type="application/json"):
-    headers = {"User-Agent": "ZhiXing release notification", "Accept": "application/json"}
+    headers = {"User-Agent": "tebb release notification", "Accept": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
     if data is not None:
@@ -56,7 +56,8 @@ def release_card(manifest, image_key, url, *, legacy=False):
         text = escape(str(value), quote=False)
         for ch in "*_[]": text = text.replace(ch, f"&#{ord(ch)};")
         return text
-    heading = "知行 · ZhiXing " + manifest["tag"]
+    # Old manifests and posters retain their original published brand.
+    heading = manifest.get("product_name", "知行 · ZhiXing") + " " + manifest["tag"]
     paragraphs = [{"tag": "markdown", "content": f"**{md(item['title'])}**\n{md(item['description'])}"}
                   for item in manifest["highlights"]]
     buttons = [{"tag": "button", "text": {"tag": "plain_text", "content": label}, "type": kind,
@@ -135,7 +136,7 @@ class Notifier:
                 sender = message.get("sender", {})
                 if sender.get("id") in identities and message.get("msg_type") == "interactive" and not message.get("deleted"):
                     body = json.dumps(message.get("body", {}), ensure_ascii=False)
-                    if re.search(r"(?:ZhiXing|DeskCompanion) " + re.escape(release["tag_name"]) + r"(?![\w.])", body): return True
+                    if re.search(r"(?:tebb|ZhiXing|DeskCompanion) " + re.escape(release["tag_name"]) + r"(?![\w.])", body, re.I): return True
             if not data.get("has_more"): return False
             next_page = data.get("page_token")
             if not next_page or next_page == page: break

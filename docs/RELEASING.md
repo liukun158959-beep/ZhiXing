@@ -2,12 +2,14 @@
 
 当前产物是独立 x64 便携 ZIP。发布前需执行 Python、前端、Rust 和隔离运行时验证；发布脚本拒绝个人配置与日志。不要把整个开发工作目录压缩上传。
 
+主品牌统一为 `tebb`。下一次发布包名为 `tebb-<version>-windows-x64.zip`，入口为 `tebb.exe`；先按新版本维护 manifest、版本号、更新说明与主题图，避免覆盖已有 v0.2.3 发布。新 manifest 增加 `product_name: "tebb"`，供飞书卡片使用；没有该字段的历史 manifest 继续使用旧品牌。历史 Release、旧 ZIP 文件名和已发送卡片保持原记录。
+
 ## 构建
 
 PowerShell，在仓库根目录运行（output 必须是新的绝对目录）：
 
 ```powershell
-python scripts/prepare_runtime.py --atlas ../Atlas --output C:/Build/ZhiXing-runtime
+python scripts/prepare_runtime.py --atlas ../Atlas --output C:/Build/tebb-runtime
 python -m unittest discover -s tests -v
 cd client
 pnpm install --frozen-lockfile
@@ -19,8 +21,8 @@ cd ..
 $env:DESK_RELEASE = '1'
 pnpm tauri build --no-bundle
 cd ..
-python scripts/smoke_release.py C:/Build/ZhiXing-runtime
-python scripts/bundle_release.py --runtime-package C:/Build/ZhiXing-runtime --output C:/Build/ZhiXing-release
+python scripts/smoke_release.py C:/Build/tebb-runtime
+python scripts/bundle_release.py --runtime-package C:/Build/tebb-runtime --output C:/Build/tebb-release
 ```
 
 运行时取 [Python 官方 3.13.16 x64 嵌入包](https://www.python.org/downloads/release/python-31316/)，校验官方 SHA256 后解压。依赖版本固定在 `scripts/runtime-lock.txt`，包内记录 `runtime-packages.txt` 和 `runtime-provenance.json`。

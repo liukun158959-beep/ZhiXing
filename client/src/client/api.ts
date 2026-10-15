@@ -102,7 +102,7 @@ export function streamNotebook(
       ws.close();
     }
   };
-  ws.onerror = () => handlers.onError("连不上本地后端。恢复：看知行日志后重启客户端");
+  ws.onerror = () => handlers.onError("连不上本地后端。恢复：看 tebb 日志后重启客户端");
 }
 
 export function streamChat(
@@ -130,7 +130,7 @@ export function streamChat(
       ws.close();
     }
   };
-  ws.onerror = () => handlers.onError("连不上本地后端。恢复：看知行日志后重启客户端");
+  ws.onerror = () => handlers.onError("连不上本地后端。恢复：看 tebb 日志后重启客户端");
 }
 
 export function rpc<T>(
@@ -169,7 +169,7 @@ export function rpc<T>(
         finish(new Error(msg.result?.error || msg.data || "RPC 失败"));
       } catch { finish(new Error("本地后端返回了无法解析的结果，请查看日志。")); }
     };
-    ws.onerror = () => finish(new Error("连不上本地后端。恢复：看知行日志后重启客户端"));
+    ws.onerror = () => finish(new Error("连不上本地后端。恢复：看 tebb 日志后重启客户端"));
     ws.onclose = () => finish(new Error("连接已断开，尚未收到操作结果；请先核查是否已执行。"));
   });
 }

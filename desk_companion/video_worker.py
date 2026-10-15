@@ -206,7 +206,7 @@ def retrieve(url, settings, emit):
     try:
         import yt_dlp
     except ImportError:
-        raise RuntimeError("缺少视频读取扩展 yt-dlp。源码运行请安装项目依赖，发布版请更新知行。") from None
+        raise RuntimeError("缺少视频读取扩展 yt-dlp。源码运行请安装项目依赖，发布版请更新 tebb。") from None
     platform, url = normalize_url(url)
     if urlsplit(url).hostname == "b23.tv":
         try:

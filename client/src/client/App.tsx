@@ -1973,9 +1973,9 @@ export function App() {
       </div>
       <aside className="relative z-10 corner-brackets flex w-64 shrink-0 flex-col border-r border-border bg-card/80 backdrop-blur-md">
         <div className="px-4 py-5">
-          <div className="ef-overline">DESK COMPANION</div>
+          <div className="ef-overline">AGENT WORKSPACE</div>
           <GlitchText className="mt-1 block text-lg font-semibold text-primary" intensity="low">
-            凯尔希
+            tebb
           </GlitchText>
         </div>
         <nav className="mt-2 flex flex-col gap-1 px-2" data-side-nav>

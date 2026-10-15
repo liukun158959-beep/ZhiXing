@@ -62,7 +62,7 @@ export function SetupGuide(props: {
           else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first?.focus(); }
         }}>
         <header className="flex items-start justify-between border-b border-border px-7 py-5">
-          <div><p className="mb-1 text-xs text-primary">首次使用 · {step + 1} / 3</p><h1 id="setup-title" className="text-xl font-semibold">{["欢迎使用知行 · ZhiXing", "连接你的模型", "按需启用其他功能"][step]}</h1></div>
+          <div><p className="mb-1 text-xs text-primary">首次使用 · {step + 1} / 3</p><h1 id="setup-title" className="text-xl font-semibold">{["欢迎使用 tebb", "连接你的模型", "按需启用其他功能"][step]}</h1></div>
           <button ref={closeRef} autoFocus type="button" className={button} disabled={busy} onClick={() => props.onClose()}>稍后设置</button>
         </header>
         <div className="overflow-y-auto px-7 py-6 text-sm leading-6">

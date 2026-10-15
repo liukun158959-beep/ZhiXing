@@ -1,8 +1,10 @@
-# 知行 · ZhiXing
+# tebb
 
-**个人 Agent 助手：把对话、资料、工具与执行结果放进同一个工作区。**
+**面向极客的 Agent 工作台：把对话、资料、工具与执行结果放进同一个工作区。**
 
 基于 Atlas 的 Windows 个人 Agent 工作台。用自然语言处理日程与待办、检索个人知识库、学习视频、整理飞书文档，并在隔离终端验证结果。凯尔希 Live2D 桌宠是可选入口，未配置素材也能使用主工作台。
+
+项目现已更名为 **tebb**（原知行 · ZhiXing），统一使用小写。后续产品方向是面向极客、云端常驻并可连接本机的 Agent；当前已发布版本仍以本机运行。名称与兼容约定见 [品牌说明](docs/BRAND.md)。
 
 [下载 Windows 版](https://github.com/liukun158959-beep/ZhiXing/releases) · [开始使用](docs/GETTING_STARTED.md) · [功能与设置](docs/WORKBENCH_REFERENCE.md) · [反馈问题](https://github.com/liukun158959-beep/ZhiXing/issues)
 
@@ -54,7 +56,7 @@
 
 需要 Windows 10/11 x64 和 WebView2 Runtime；便携版不需要自行安装 Python、Node 或 Rust。测试模型连接会发送真实请求并可能计费。
 
-**版本说明：** 最新公开包为 **v0.2.3**。本文介绍当前 `main` 源码；新侧栏、菜单调整及隔离终端尚未重新打包，公开包功能以对应 Release 说明为准。
+**版本说明：** 最新公开包为原品牌的 **v0.2.3**，入口仍为 `ZhiXing.exe`。本文介绍当前 `main` 源码；tebb 更名、新侧栏、菜单调整及隔离终端尚未重新打包，公开包功能以对应 Release 说明为准。
 
 ### 从源码运行
 

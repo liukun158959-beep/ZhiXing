@@ -126,7 +126,7 @@ fn login_window(
     let popup_profile = profile.clone();
     let mut builder =
         WebviewWindowBuilder::new(app, label, WebviewUrl::External(Url::parse(home).unwrap()))
-            .title(format!("知行 · {platform} 登录与视频浏览"))
+            .title(format!("tebb · {platform} 登录与视频浏览"))
             .inner_size(1080.0, 760.0)
             .visible(visible)
             .data_directory(profile)
@@ -142,7 +142,7 @@ fn login_window(
                         child_label,
                         WebviewUrl::External(Url::parse("about:blank").unwrap()),
                     )
-                    .title(format!("知行 · {popup_platform} 验证与浏览"))
+                    .title(format!("tebb · {popup_platform} 验证与浏览"))
                     .inner_size(1000.0, 720.0)
                     .data_directory(popup_profile.clone())
                     .window_features(features)
@@ -171,7 +171,7 @@ fn login_window(
     }
     builder
         .build()
-        .map_err(|_| "视频窗口创建失败，请重启知行后重试。".into())
+        .map_err(|_| "视频窗口创建失败，请重启 tebb 后重试。".into())
 }
 
 #[tauri::command]

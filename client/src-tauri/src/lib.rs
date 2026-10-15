@@ -484,6 +484,6 @@ fn backend_location() -> Result<(std::path::PathBuf, std::path::PathBuf), String
     let exe = std::env::current_exe().map_err(|err| err.to_string())?;
     let directory = exe.parent().ok_or("无法确定程序目录")?.to_path_buf();
     let python = directory.join("runtime/python.exe");
-    if !python.is_file() { return Err("运行环境缺失。请完整解压发布包，保留 ZhiXing.exe 旁的 runtime 文件夹。".into()); }
+    if !python.is_file() { return Err("运行环境缺失。请完整解压发布包，保留程序入口旁的 runtime 文件夹。".into()); }
     Ok((python, directory))
 }

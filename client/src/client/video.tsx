@@ -267,7 +267,7 @@ export function VideoSettings({ info, debug = false, expanded = false }: { info:
       <label className="block">字幕登录文件（可选）<input className="mt-1 block w-full rounded border border-border bg-background p-2" value={settings.cookie_file}
         disabled={!loaded || busy} placeholder="自己导出的 Netscape 格式 cookies.txt 的完整路径"
         onChange={e => setSettings({ ...settings, cookie_file: e.target.value })} /></label>
-      <p className="text-xs text-muted-foreground">Bilibili 部分字幕需要登录。登录文件只供本机读取，不上传到飞书；知行不会自动读取浏览器登录信息。更改设置后，可在追问中说“重新获取这个视频”。</p>
+      <p className="text-xs text-muted-foreground">Bilibili 部分字幕需要登录。登录文件只供本机读取，不上传到飞书；tebb 不会自动读取浏览器登录信息。更改设置后，可在追问中说“重新获取这个视频”。</p>
       <button className="rounded bg-secondary px-3 py-2 disabled:opacity-40" disabled={!loaded || busy || debug} onClick={() => void save()}>保存视频设置</button>
       {message && <p role="status">{message}</p>}
     </div>

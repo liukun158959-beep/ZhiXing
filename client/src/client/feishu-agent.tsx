@@ -114,11 +114,11 @@ export function FeishuAgentPane({ info, debug = false }: { info: BackendInfo | n
   function openLink(url: string) {
     if (isTauri()) void invoke("open_link", { url }); else window.open(url, "_blank", "noopener");
   }
-  return <section className="mt-10 max-w-2xl rounded-xl border border-border p-5" aria-label="飞书知行 Agent">
-    <h2 className="text-base font-semibold">在飞书使用知行 Agent</h2>
+  return <section className="mt-10 max-w-2xl rounded-xl border border-border p-5" aria-label="飞书 tebb Agent">
+    <h2 className="text-base font-semibold">在飞书使用 tebb Agent</h2>
     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-      接入本机飞书 CLI 已配置的应用。接入后，你可以在飞书私聊机器人，使用知行的模型、技能、知识库和工具。
-      仅接受绑定的登录用户；知行需要保持运行，聊天历史与桌面当前对话分开保存。
+      接入本机飞书 CLI 已配置的应用。接入后，你可以在飞书私聊机器人，使用 tebb 的模型、技能、知识库和工具。
+      仅接受绑定的登录用户；tebb 需要保持运行，聊天历史与桌面当前对话分开保存。
     </p>
     <p className="mt-4 text-sm" data-feishu-agent-state>{STATES[snap?.state || "stopped"] || "读取状态中"}</p>
     {snap?.connected && <p className="mt-2 text-xs text-white/50">记忆菜单：{snap.menu_connected ? "已监听" : "等待连接"}。菜单动作需配置为 memory_request_from_feishu，订阅 application.bot.menu_v6 后发布应用。</p>}
@@ -149,7 +149,7 @@ export function FeishuAgentPane({ info, debug = false }: { info: BackendInfo | n
       </label>
       <Button type="button" variant="secondary" size="sm" disabled={locked} onClick={() => void refreshProfiles()}>刷新应用列表</Button>
       {selected ? <p className="select-text text-xs text-muted-foreground">App ID：{selected.appId} · {selected.brand === "lark" ? "Lark" : "飞书"}</p> : null}
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={settings.auto_start} onChange={(event) => edit("auto_start", event.target.checked)} />知行启动时自动接入</label>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={settings.auto_start} onChange={(event) => edit("auto_start", event.target.checked)} />tebb 启动时自动接入</label>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={settings.auto_reconnect} onChange={(event) => edit("auto_reconnect", event.target.checked)} />网络断开后自动重连</label>
       <div className="flex flex-wrap gap-4">
         <label className="text-sm">初始重连间隔（秒）<input aria-label="初始重连间隔" type="number" min={1} max={300} step={1} value={settings.retry_min}

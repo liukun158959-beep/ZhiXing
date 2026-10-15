@@ -26,7 +26,7 @@ def main():
     dist = ROOT / "client/dist"
     if any((dist / directory).exists() for directory in ["skins", "Core"]):
         raise RuntimeError("前端构建目录包含私有素材，请用 DESK_RELEASE=1 重新构建。")
-    shutil.copy2(exe, package / "ZhiXing.exe")
+    shutil.copy2(exe, package / "tebb.exe")
     shutil.copy2(ROOT / "docs/GETTING_STARTED.md", package / "使用说明.md")
     shutil.copy2(ROOT / "docs/RELEASING.md", package / "RELEASING.md")
     shutil.copy2(ROOT / "scripts/安装知识库扩展.cmd", package / "安装知识库扩展.cmd")
@@ -39,10 +39,10 @@ def main():
         if file.is_file() and (file.name in PRIVATE_NAMES or file.suffix in {".log", ".ready"}):
             raise RuntimeError(f"发布目录包含个人配置或运行记录：{file}")
     args.output.mkdir(parents=True, exist_ok=True)
-    output = args.output / f"ZhiXing-{VERSION}-windows-x64.zip"
+    output = args.output / f"tebb-{VERSION}-windows-x64.zip"
     if output.exists():
         raise RuntimeError(f"目标文件已存在：{output}")
-    prefix = f"ZhiXing-{VERSION}"
+    prefix = f"tebb-{VERSION}"
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for file in sorted(package.rglob("*")):
             if not file.is_file() or "__pycache__" in file.parts or file.suffix == ".pyc":

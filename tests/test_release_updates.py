@@ -141,12 +141,22 @@ class NotificationTests(unittest.TestCase):
                 "body": {"content": "ZhiXing v0.2.20"}}]}}
         self.notify.request = request
         self.assertFalse(self.notify.verify_pending(self.release, 1))
+        for brand in ("tebb", "ZhiXing", "DeskCompanion"):
+            content = brand + " " + self.release["tag_name"]
+            self.notify.request = lambda url, **kw: {"bot": {"open_id": "test-bot"}} if "bot/v3" in url else {
+                "data": {"has_more": False, "items": [{"sender": {"id": "test-bot"}, "msg_type": "interactive",
+                          "body": {"content": content}}]}}
+            self.assertTrue(self.notify.verify_pending(self.release, 1), brand)
         self.notify.request = lambda url, **kw: {"bot": {"open_id": "test-bot"}} if "bot/v3" in url else {
             "data": {"has_more": True, "items": [], "page_token": "same"}}
         with self.assertRaises(notices.RemoteError): self.notify.verify_pending(self.release, 1)
 
     def test_card_has_image_five_updates_one_focal_title_and_download_links(self):
         card=notices.release_card(self.manifest,"image",self.release["html_url"])
+        self.assertIn("ZhiXing", card["header"]["title"]["content"])
+        for legacy in (False, True):
+            renamed = notices.release_card({**self.manifest, "product_name": "tebb"}, "image", self.release["html_url"], legacy=legacy)
+            self.assertEqual(renamed["header"]["title"]["content"], "tebb " + self.manifest["tag"])
         blocks=card["body"]["elements"]
         self.assertEqual(len(blocks),3)
         self.assertEqual(blocks[0]["columns"][0]["elements"][0]["tag"],"img")

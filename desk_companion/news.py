@@ -230,7 +230,7 @@ def fetch_source(url):
     repo_parts = parts.path.strip("/").split("/")
     if parts.hostname == "github.com" and len(repo_parts) >= 2 and repo_parts[0].lower() in OWNERS and repo_parts[0] != "orgs":
         repo = "/".join(repo_parts[:2])
-        headers = {"User-Agent": "ZhiXing daily research", "Accept": "application/vnd.github.raw+json"}
+        headers = {"User-Agent": "tebb daily research", "Accept": "application/vnd.github.raw+json"}
         try:
             with opener.open(urllib.request.Request("https://api.github.com/repos/" + repo + "/readme", headers=headers), timeout=10) as response:
                 text = response.read(45000).decode("utf-8", "replace")
@@ -251,7 +251,7 @@ def fetch_source(url):
         except Exception:
             pass  # 没有 release 的仓库仍可读 README，但不猜测发布时间。
         return {"text": text[:10000], "published": published}
-    with opener.open(urllib.request.Request(url, headers={"User-Agent": "ZhiXing/0.2 (+daily research)"}), timeout=10) as response:
+    with opener.open(urllib.request.Request(url, headers={"User-Agent": "tebb/0.2 (+daily research)"}), timeout=10) as response:
         if "text/html" not in response.headers.get("Content-Type", ""):
             raise ValueError("来源不是网页正文。")
         raw = response.read(350000).decode(response.headers.get_content_charset() or "utf-8", errors="replace")
@@ -361,7 +361,7 @@ def summarize(day, cfg, candidates, emit):
         "返回严格JSON：{\"lead\":\"本期重点结论\",\"cover_title\":\"突出本期真实动向的中文标题，16字以内，不夸大\","
         "\"items\":[{\"source_id\":\"输入id\",\"title_zh\":\"原始标题的中文翻译，保留项目名\",\"poster_label\":\"海报标签，项目简称加技术重点，24字以内，不重复GitHub组织路径\",\"category\":\"技术类别\","
         "\"summary\":\"用于群卡片的一句话，60字以内\",\"detail\":\"用于文档的详细说明，250至400字，解释发布内容、关键机制、证据和适用场景\","
-        "\"key_points\":[\"可核实技术要点1\",\"可核实技术要点2\"],\"value\":\"针对知行工作台的具体试用步骤或实践建议，120字以内\","
+        "\"key_points\":[\"可核实技术要点1\",\"可核实技术要点2\"],\"value\":\"针对 tebb 工作台的具体试用步骤或实践建议，120字以内\","
         "\"caution\":\"许可证/开源范围/兼容性/硬件要求/尚未复现等局限，80字以内\"}]}。"
         "未公开许可证、代码或硬件要求时写未知；不要把只开源权重说成全部开源。英文原始标题必须提供准确中文翻译。"
         "不要硬凑来源、不生成Markdown或代码围栏。"},

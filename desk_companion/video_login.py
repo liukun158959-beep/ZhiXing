@@ -1,4 +1,4 @@
-"""知行专用视频窗口的登录快照；Windows 当前用户 DPAPI 加密，不读取外部浏览器。"""
+"""tebb 专用视频窗口的登录快照；Windows 当前用户 DPAPI 加密，不读取外部浏览器。"""
 from __future__ import annotations
 
 import base64

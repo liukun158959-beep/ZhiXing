@@ -1,4 +1,4 @@
-"""飞书机器人通道：CLI 托管凭证与长连接，知行复用同一 Agent。"""
+"""飞书机器人通道：CLI 托管凭证与长连接，tebb 复用同一 Agent。"""
 from __future__ import annotations
 
 import hashlib
@@ -19,12 +19,12 @@ from .feishu_connection import ConnectionFailure, classify
 
 EVENT_KEY = "im.message.receive_v1"
 MENU_EVENT = "application.bot.menu_v6"
-HELP = ("我是知行 Agent，使用本机配置的模型、技能和工具。\n"
+HELP = ("我是 tebb Agent，使用本机配置的模型、技能和工具。\n"
         "发送 Bilibili / YouTube 视频链接可读取字幕并总结；可追问或要求保存到飞书文档。没有字幕会明确说明。\n"
         "直接发送问题即可。\n/help 帮助\n/new 新对话（保留旧历史）\n/status 接入状态\n/memory 当前记忆（无需模型）\n"
         "/skills 技能列表\n/skill 技能名 问题\n/kb 问题：使用知识库\n"
         "/mcps MCP 工具列表\n/mcp 服务器名/工具名 问题\n"
-        "当前只接收绑定用户的私聊文本或富文本；知行必须保持运行。")
+        "当前只接收绑定用户的私聊文本或富文本；tebb 必须保持运行。")
 
 
 def config_path() -> Path:
@@ -256,7 +256,7 @@ class FeishuAgent:
 
     def _require_stopped(self):
         if self._closing.is_set():
-            raise RuntimeError("知行正在退出。")
+            raise RuntimeError("tebb 正在退出。")
         if self._verifying or (self._identity_retry and self._identity_retry.is_alive()) or (self._supervisor and self._supervisor.is_alive()) or (self._worker and self._worker.is_alive()) or (self._menu_thread and self._menu_thread.is_alive()):
             raise RuntimeError("请先停止接入，并等待当前任务结束后再修改设置。")
 
@@ -331,7 +331,7 @@ class FeishuAgent:
     def enable(self) -> dict:
         with self._lock:
             if self._closing.is_set():
-                raise RuntimeError("知行正在退出，不能启动飞书连接。")
+                raise RuntimeError("tebb 正在退出，不能启动飞书连接。")
             if self._verifying or (self._identity_retry and self._identity_retry.is_alive()) or (self._supervisor and self._supervisor.is_alive()):
                 return self.status()
             if self._worker and self._worker.is_alive():
@@ -372,7 +372,7 @@ class FeishuAgent:
 
     def _activate_identity(self, identity):
         if self._closing.is_set() or self._stop.is_set():
-            raise RuntimeError("知行正在退出或接入已停止，不能启动飞书连接。")
+            raise RuntimeError("tebb 正在退出或接入已停止，不能启动飞书连接。")
         previous = self._config().get("binding") or {}
         if previous and any(previous.get(key) != identity[key] for key in ("app_id", "owner_id", "profile")):
             raise ConnectionFailure("binding", "已绑定的应用或用户与当前 CLI 不同。请检查 CLI profile；不要将个人工具连接到另一身份。")
@@ -597,7 +597,7 @@ class FeishuAgent:
         sender = CardReply(self._binding["profile"], row["id"], self._binding["owner_id"], row["id"])
         for index in range(row["sent"], len(pages)):
             title = f"凯尔希 · 当前记忆（{index + 1}/{len(pages)}）"
-            payload = card(title, "仅本人可查看 · 已保存的事实与摘要", pages[index] + "\n\n完整聊天记录：知行主窗口 → 飞书 → 聊天任务监控台。")
+            payload = card(title, "仅本人可查看 · 已保存的事实与摘要", pages[index] + "\n\n完整聊天记录：tebb 主窗口 → 飞书 → 聊天任务监控台。")
             try:
                 sender.send(payload, "interactive", sender._key(f"memory-{index}"))
             except Exception:
@@ -767,7 +767,7 @@ class FeishuAgent:
                 from .logutil import log
                 log(f"feishu_agent failed: {type(exc).__name__}")
                 # 具体异常留在本机，不向飞书输出路径、凭证或内部堆栈。
-                answer = "本次 Agent 处理失败，请在知行检查模型配置和日志。工具可能已执行，请确认结果后再试。"
+                answer = "本次 Agent 处理失败，请在 tebb 检查模型配置和日志。工具可能已执行，请确认结果后再试。"
             self._inbox.update(row["app"], row["id"], answer=answer, state="answered")
         else:
             answer = row["answer"]
@@ -805,7 +805,7 @@ class FeishuAgent:
             streaming = False
             self._diagnostic = "流式卡片不可用，已改为普通回复；请在应用后台开通并发布 cardkit:card:write。"
             try:
-                sender.send({"text": "博士，已收到。任务正在后台处理，可在知行监控台查看或停止。"}, "text", sender._key("ack"))
+                sender.send({"text": "博士，已收到。任务正在后台处理，可在 tebb 监控台查看或停止。"}, "text", sender._key("ack"))
             except Exception:
                 pass
         last, next_update = None, 0
@@ -825,7 +825,7 @@ class FeishuAgent:
                 next_update = time.monotonic() + 2
             if self._stop.wait(.3):
                 # 连接停止不重跑 Agent；任务仍可在监控台停止或继续。
-                return "飞书连接已停止，任务进度保留在知行监控台。"
+                return "飞书连接已停止，任务进度保留在 tebb 监控台。"
 
     def _finish_card(self, row, answer):
         from .feishu_cards import CardReply
@@ -913,9 +913,9 @@ class FeishuAgent:
             return HELP
         if command == "/new":
             self._inbox.session(row["app"], row["chat"], row["sender"], reset=True)
-            return "已开始新的飞书对话，旧历史仍保留在知行。"
+            return "已开始新的飞书对话，旧历史仍保留在 tebb。"
         if command == "/status":
-            return f"知行已连接飞书应用「{self._binding['app_name']}」，仅接受绑定用户私聊。模型与工具使用知行当前配置。"
+            return f"tebb 已连接飞书应用「{self._binding['app_name']}」，仅接受绑定用户私聊。模型与工具使用 tebb 当前配置。"
         if command == "/skills":
             from .skill_catalog import list_skills
             return "\n".join(f"{item['id']}：{item['description']}" for item in list_skills()) or "当前没有技能。"
@@ -923,7 +923,7 @@ class FeishuAgent:
             from .mcp_client import list_mcp_menu
             menu = list_mcp_menu()
             if menu.get("ok") is not True:
-                return "MCP 尚未准备好，请在知行配置并检查 MCP 工具。"
+                return "MCP 尚未准备好，请在 tebb 配置并检查 MCP 工具。"
             return "\n".join(item["label"] for item in menu["items"]) or "当前没有 MCP 工具。"
         knowledge = command == "/kb"
         chips = {}

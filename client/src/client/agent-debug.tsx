@@ -25,7 +25,7 @@ export const DEBUG_SAMPLE: DebugDetail = {
   call: { id: "sample-call", task_id: "sample-task", session: "sample-session", channel: "desktop", model: "示例模型", created: 1791532800,
     updated: 1791532803, endpoint: "https://example.invalid/v1/chat/completions", state: "complete", status: 200, duration_ms: 3100, first_byte_ms: 420, request_bytes: 1800, error: "" },
   request: { model: "示例模型", stream: true, temperature: .5, messages: [
-    { role: "system", content: "你是知行。按工具结果回答，不能把预测当作事实。" },
+    { role: "system", content: "你是 tebb。按工具结果回答，不能把预测当作事实。" },
     { role: "user", content: "帮我看看今天的日程" },
     { role: "assistant", content: null, tool_calls: [{ id: "call_1", type: "function", function: { name: "get_today_agenda", arguments: "{}" } }] },
     { role: "tool", tool_call_id: "call_1", content: "14:00 项目复盘；16:30 技术分享" }],

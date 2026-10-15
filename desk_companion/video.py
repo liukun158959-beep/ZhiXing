@@ -307,7 +307,7 @@ def export_summary(session, source_id, markdown, title="", confirmed_absent=Fals
         note, diagrams = separate_diagrams(note)
         body = f"# {escape_md(value['title'])}\n\n作者：{escape_md(value.get('author', '未知'))}\n\n"
         body += f"来源：{value['platform']} · 字幕状态：{escape_md(value['subtitle_notice'])}\n\n"
-        body += "以下为知行基于已获取来源整理的笔记；作者观点以字幕为依据，补充解释、流程图与外部资料见正文标注。未读取的视频画面不作为依据。\n\n" + note
+        body += "以下为 tebb 基于已获取来源整理的笔记；作者观点以字幕为依据，补充解释、流程图与外部资料见正文标注。未读取的视频画面不作为依据。\n\n" + note
         from .wiki_connection import load_settings as wiki_settings
         cfg = destination if destination is not None else wiki_settings()
         parent = cfg.get("video_parent_token", "")

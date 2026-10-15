@@ -44,7 +44,7 @@ class ReleaseRedirect(urllib.request.HTTPRedirectHandler):
 
 def check_updates():
     current = load_manifest()["version"]
-    headers = {"User-Agent": "ZhiXing update check", "Accept": "application/vnd.github+json"}
+    headers = {"User-Agent": "tebb update check", "Accept": "application/vnd.github+json"}
     try:
         try:
             request = urllib.request.Request(f"https://api.github.com/repos/{REPOSITORY}/releases/latest", headers=headers)
@@ -65,7 +65,7 @@ def check_updates():
             if not safe_release_url(url) or "/releases/tag/" not in url:
                 raise ValueError("尚未取得可核实的正式版本。")
             latest = url.rsplit("/", 1)[-1]
-            title, published = "知行 · ZhiXing " + latest, ""
+            title, published = "正式版本 " + latest, ""
             notes = "已从正式发布页核实版本，完整更新说明请打开下载页面查看。"
         remote, local = version_tuple(latest), version_tuple(current)
         return {"ok": True, "current_version": current, "latest_version": latest.removeprefix("v"),
