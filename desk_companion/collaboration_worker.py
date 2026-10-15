@@ -131,7 +131,8 @@ def execute(request, emit, llm=None, search=None, fetch=None):
                             result=format_search(payload);ledger=search_ledger(payload)
                         if not ledger: raise ValueError("搜索未返回可追溯来源")
                         evidence=dict(kind="search",query=query,text=result[:18000],sources=ledger,
-                                      provider=payload.get("provider"),fallback_reason=payload.get("fallback_reason",""))
+                                      provider=payload.get("provider"),fallback_reason=payload.get("fallback_reason",""),
+                                      attempts=payload.get("attempts",[]),primary_failure=payload.get("primary_failure"))
                     else:
                         if url_key(query) not in discovered: raise ValueError("只允许读取用户提供或实际来源中发现的链接，请先搜索")
                         evidence=(fetch or fetch_page)(query)
@@ -139,7 +140,9 @@ def execute(request, emit, llm=None, search=None, fetch=None):
                         ledger=[evidence];result=json.dumps(evidence,ensure_ascii=False)
                 except Exception as exc:
                     reason = (type(exc).__name__+": "+str(exc)).replace(model["api_key"], "[密钥已隐藏]")[:400]
-                    emit("tool_end", {"tool": name, "status": "failed", "error": reason})
+                    emit("tool_end", {"tool": name, "status": "failed", "error": reason,
+                        "diagnostic":exc.diagnostic() if callable(getattr(exc,"diagnostic",None)) else None,
+                        "attempts":getattr(exc,"attempts",[])})
                     search_errors.append(reason)
                     messages.append({"role": "tool", "tool_call_id": call["id"], "content": "来源工具失败，没有取得该来源。"+reason+"。可在剩余预算内重试或读取已提供的公开链接；不能据此编造结论。"})
                     continue

@@ -4,6 +4,7 @@ import json
 import ssl
 import unittest
 import urllib.error
+import http.client
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -103,6 +104,53 @@ class SearchTests(unittest.TestCase):
         with patch.object(web_search,'_post',side_effect=RuntimeError('HTTP 401')),patch.object(web_search,'_bing_search') as fallback:
             with self.assertRaises(RuntimeError):web_search.search_sources('unused','key','q')
             fallback.assert_not_called()
+
+    def test_tls_eof_retries_then_reaches_real_fallback_path_with_diagnostics(self):
+        self.urlopen.side_effect=urllib.error.URLError(ssl.SSLEOFError('UNEXPECTED_EOF_WHILE_READING test-secret'))
+        with patch.object(web_search,'_bing_search',return_value=GOOD) as fallback:
+            payload=web_search.search_sources(CFG['ATLAS_BASE_URL'],'test-secret','new query')
+        self.assertEqual(self.urlopen.call_count,2);fallback.assert_called_once_with('new query')
+        self.assertEqual(payload['provider'],'bing-rss')
+        self.assertEqual(payload['primary_failure']['category'],'tls_eof')
+        self.assertEqual(payload['primary_failure']['stage'],'tls_handshake')
+        self.assertEqual([r['ok'] for r in payload['attempts']],[False,False,True])
+        self.assertNotIn('test-secret',str(payload))
+
+    def test_raw_tls_eof_and_incomplete_body_are_transient_not_certificate_failures(self):
+        with patch.object(web_search,'_bing_search',return_value=GOOD):
+            self.urlopen.side_effect=ssl.SSLEOFError('unexpected EOF')
+            self.assertEqual(web_search.search_sources('https://example.invalid/search','test-secret','query')['provider'],'bing-rss')
+            self.urlopen.side_effect=http.client.IncompleteRead(b'partial')
+            self.assertEqual(web_search.search_sources('https://example.invalid/search','test-secret','query')['primary_failure']['stage'],'response_body')
+        for failure in [ssl.SSLCertVerificationError('certificate verify failed'),urllib.error.URLError(ssl.SSLCertVerificationError('certificate verify failed'))]:
+            self.urlopen.reset_mock();self.urlopen.side_effect=failure
+            with patch.object(web_search,'_bing_search') as fallback:
+                with self.assertRaises(web_search.SearchFailure) as error:web_search.search_sources('https://example.invalid/search','test-secret','query')
+                self.assertEqual(error.exception.category,'tls_certificate')
+                self.assertEqual(self.urlopen.call_count,1);fallback.assert_not_called()
+
+    def test_timeout_diagnostic_distinguishes_response_body_from_unknown_connect(self):
+        class Broken(io.BytesIO):
+            def read(self,*args):raise TimeoutError('read timeout')
+        self.urlopen.return_value=Broken();self.urlopen.side_effect=None
+        with self.assertRaises(web_search.RetryableSearchError) as caught:web_search._post_once('https://example.invalid','test-secret','query',1)
+        self.assertEqual(caught.exception.stage,'response_body')
+
+    def test_upstream_tls_error_is_not_reported_as_local_handshake_failure(self):
+        self.urlopen.side_effect=[response({'error':'upstream UNEXPECTED_EOF_WHILE_READING'}),response({'error':'upstream UNEXPECTED_EOF_WHILE_READING'})]
+        with patch.object(web_search,'_bing_search',return_value=GOOD):
+            payload=web_search.search_sources('https://example.invalid/search','test-secret','query')
+        self.assertEqual(payload['primary_failure']['stage'],'upstream_response')
+        self.assertEqual(payload['primary_failure']['category'],'upstream_temporary')
+
+    def test_both_providers_failed_preserves_attempt_diagnostics_without_credentials(self):
+        self.urlopen.side_effect=urllib.error.URLError(ssl.SSLEOFError('EOF test-secret'))
+        with patch.object(web_search,'_bing_search',side_effect=RuntimeError('private test-secret')):
+            with self.assertRaises(web_search.RetryableSearchError) as caught:
+                web_search.search_sources('https://example.invalid/search','test-secret','query')
+        self.assertEqual(len(caught.exception.attempts),3)
+        self.assertEqual(caught.exception.primary_failure['category'],'tls_eof')
+        self.assertNotIn('test-secret',str(caught.exception))
 
 
 if __name__ == "__main__":
