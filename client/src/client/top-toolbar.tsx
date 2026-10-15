@@ -1,5 +1,3 @@
-import { useRef } from "react";
-import { CURRENT_RELEASE } from "./release";
 
 export function versionTap(previous: { count: number; time: number }, now: number) {
   const count = now - previous.time > 3000 ? 1 : previous.count + 1;
@@ -11,7 +9,6 @@ export function TopToolbar({ title, model, connected, busy, dark, onTheme, onNew
   onTheme: () => void; onNewChat: () => void; onMonitor: () => void; onVideo: () => void; onDebug: () => void;
   onFile?: () => void; onFolder?: () => void; onTerminal?: () => void;
 }) {
-  const taps = useRef({ count: 0, time: 0 });
   return <header data-top-toolbar className="flex min-h-10 shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-border bg-card/85 px-4 py-1">
     <div className="flex min-w-0 items-center gap-3"><span className="h-2 w-2 shrink-0 rounded-full bg-primary" />
       <span className="text-sm font-medium">{title}</span><span className="hidden max-w-64 truncate text-xs text-muted-foreground xl:block" title={model}>{model || "未选择模型"}</span>
@@ -25,11 +22,7 @@ export function TopToolbar({ title, model, connected, busy, dark, onTheme, onNew
       <button className="desk-menu-item" disabled={!connected} onClick={onFile}>文件</button>
       <button className="desk-menu-item" disabled={!connected} onClick={onFolder}>文件夹</button>
       <button className="desk-menu-item" aria-label="切换主题" onClick={onTheme}>{dark ? "浅色" : "深色"}</button>
-      <button className="desk-menu-item font-mono text-muted-foreground" data-debug-version
-        title="连续点击 5 次打开 Agent 调试" aria-label={`版本 v${CURRENT_RELEASE.version}，连续点击五次打开 Agent 调试`}
-        onClick={() => { const next = versionTap(taps.current, Date.now()); taps.current = next; if (next.open) onDebug(); }}>
-        v{CURRENT_RELEASE.version}
-      </button>
+
     </nav>
   </header>;
 }

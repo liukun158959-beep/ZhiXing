@@ -1,23 +1,27 @@
 // Local interaction model only. No model, tool, credential, or backend imports.
 export type DemoAgent = { id: string; name: string; role: string; mark: string; tone: string; model: string; tools: string[]; memory: string; avatar?: string; personality?: string };
-export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string };
+export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string; legacy?: boolean; summary?: string };
 export type DemoMessage = { id: string; conversation: string; sender: string; text: string; run?: string; kind?: "result" | "notice" };
 export type DemoRun = { id: string; conversation: string; agent: string; title: string; state: "running" | "waiting" | "succeeded" | "cancelled" | "pending" | "queued" | "cancelling" | "failed" | "timed_out" | "interrupted";
   step: number; dependency?: string; updates: string[]; applied: number; events: string[]; artifact?: string;
   kind?: string; parent?: string; answer?: string; error?: string; status?: string; calls?: number; model?: string; input_tokens?: number; output_tokens?: number;
+  changes?: { path: string; diff: string }[]; checks?: { command: string; state: string; exit_code: number | null; output: string; stale?: boolean; diff_limited?: boolean }[];
   citation_check?: { ok: boolean; pages_read: number; matched: { url: string; level: string; truncated: boolean }[]; unverified: string[] } };
 export type DemoRequest = { id: string; conversation: string; run: string; state: "pending" | "approved" | "rejected" };
 export type DemoState = { version: 1; next: number; selected: string; agents: DemoAgent[]; conversations: DemoConversation[]; messages: DemoMessage[];
-  runs: DemoRun[]; requests: DemoRequest[]; notice: string; companionVersion?: number; revision?: number; models?: { id: string; model: string }[] };
+  runs: DemoRun[]; requests: DemoRequest[]; notice: string; companionVersion?: number; revision?: number; active_model?: string; workspace?: { primary: string }; skills?: { id: string; description: string }[]; models?: { id: string; model: string }[] };
 export type DemoAction =
   | { type: "select"; id: string }
-  | { type: "send"; text: string; target: string; mode: "message" | "task"; run?: string }
+  | { type: "send"; text: string; target: string; mode: "message" | "task" | "auto"; run?: string; skills?: string[]; attachments?: string[]; model_id?: string; sampling?: { reasoning_effort: string; temperature: number; top_p: number } }
   | { type: "open_dm"; agent_id: string }
   | { type: "delete_conversation"; id: string }
   | { type: "rename_conversation"; id: string; title: string }
+  | { type: "new_chat"; agent_id?: string }
+  | { type: "add_coder" }
+  | { type: "compress" }
   | { type: "advance" }
   | { type: "cancel"; id: string }
-  | { type: "group"; title: string; members: string[]; goal: string }
+  | { type: "group"; id?: string; title: string; members: string[]; goal: string }
   | { type: "agent"; agent: DemoAgent }
   | { type: "request"; run: string }
   | { type: "decide"; id: string; approved: boolean }
@@ -68,7 +72,17 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
     state.messages.push({ id: id(), conversation, sender, text, run, kind });
   };
   const conversation = state.conversations.find(item => item.id === state.selected)!;
-  if (action.type === "select") {
+  if (action.type === "new_chat") {
+    const agent = state.agents.find(a => a.id === (action.agent_id || 'tebb'))!;
+    const dm = { id: id(), title: '新对话', kind: 'dm' as const, members: [agent.id], coordinator: agent.id, goal: '' };
+    state.conversations.push(dm); state.selected = dm.id;
+  } else if (action.type === "add_coder") {
+    if (!state.agents.some(a => a.id === 'coder')) {
+      state.agents.push({ id: 'coder', name: '码可', avatar: 'owl', personality: '务实细心，重视验证。', role: '实现代码与运行验证', tools: ['工作区读取','文件编辑','终端'], memory: '', model: '', mark: 'C', tone: 'sage' });
+      state.conversations.push({ id: 'dm-coder', title: '码可', kind: 'dm', coordinator: 'coder', members: ['coder'], goal: '' });
+    }
+    state.selected = 'dm-coder';
+  } else if (action.type === "select") {
     if (state.conversations.some(item => item.id === action.id)) state.selected = action.id;
   } else if (action.type === "open_dm") {
     const agent = state.agents.find(a => a.id === action.agent_id);
@@ -110,7 +124,7 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
     }
     if (!conversation.members.includes(target)) { state.notice = "发送对象不在当前会话中。"; return state; }
     message(conversation.id, "user", text);
-    if (action.mode === "message") {
+    if (action.mode === "message" || (action.mode === "auto" && !/研究|搜索|整理|实现|修改|代码|测试|比较/.test(text))) {
       const active = state.runs.filter(run => run.conversation === conversation.id && runActive(run));
       message(conversation.id, target, active.length
         ? `收到你的消息。当前有 ${active.length} 项后台任务，聊天可以继续。要修改某项任务，请点任务卡上的「补充要求」。（本地模拟回复）`

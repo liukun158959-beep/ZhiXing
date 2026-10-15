@@ -24,9 +24,14 @@ test('version opens on the fifth consecutive click, resets after an interval, an
   let opened = 0, chats = 0, videos = 0; let renderer;
   act(() => { renderer = create(React.createElement(TopToolbar, { title: '对话', model: 'test', connected: true, busy: false, dark: true,
     onDebug: () => opened++, onNewChat: () => chats++, onVideo: () => videos++, onTheme() {}, onMonitor() {} })); });
-  const version = renderer.root.findByProps({ 'data-debug-version': true });
-  for (let i = 0; i < 4; i++) act(() => version.props.onClick());
-  assert.equal(opened, 0); act(() => version.props.onClick()); assert.equal(opened, 1);
+  assert.equal(renderer.root.findAllByProps({ 'data-debug-version': true }).length, 0);
+  const { ProductBrand } = load('workspace-shell', { './release': {CURRENT_RELEASE:{version:'0.2.3'}}, './top-toolbar':{versionTap} });
+  let brand; act(()=>{brand=create(React.createElement(ProductBrand,{developer:false,onToggle:()=>opened++}));});
+  const version = brand.root.findByProps({'data-product-version':true});
+  for(let i=0;i<4;i++) act(()=>version.props.onClick()); assert.equal(opened,0);
+  act(()=>version.props.onClick()); assert.equal(opened,1);
+  for(let i=0;i<5;i++) act(()=>version.props.onClick()); assert.equal(opened,2);
+  act(()=>brand.unmount());
   act(() => renderer.root.findAllByType('button').find(n => n.children.join('') === '新对话').props.onClick());
   act(() => renderer.root.findAllByType('button').find(n => n.children.join('') === '视频').props.onClick());
   assert.equal(chats, 1); assert.equal(videos, 1); act(() => renderer.unmount());

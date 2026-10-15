@@ -14,6 +14,8 @@ import uuid
 from functools import wraps
 
 from .paths import data_root
+from .resource_lock import ResourceLock
+START_LOCK = ResourceLock("terminal-start")
 
 ACTIVE = {"starting", "running", "stopping"}
 STATES = {"timed_out": "命令达到时限，已停止。", "interrupted": "后端连接中断，已停止。",
@@ -80,6 +82,11 @@ def linux_command(distro, *args):
 def settings():
     file = root() / "settings.json"
     return json.loads(file.read_text("utf-8")) if file.exists() else {"distro": "Ubuntu"}
+
+
+def live_lease(ident):
+    heartbeat = root() / 'jobs' / ident / 'lease'
+    return heartbeat.exists() and time.time() - heartbeat.stat().st_mtime < 12
 
 
 def idle_workspace(fn):
@@ -160,19 +167,19 @@ class TerminalManager:
             return dict(self.probe_result)
 
     @staticmethod
-    def _prepare(control, work, command, cwd, timeout):
+    def _prepare(control, work, command, cwd, timeout, references=None, project=False):
         (control / "request.json").write_text(json.dumps({"workspace": mapped(work), "command": command,
-                                                       "cwd": cwd, "timeout": timeout}), "utf-8")
+                                                       "cwd": cwd, "timeout": timeout, "references": [mapped(Path(p)) for p in references or []], "project": project}), "utf-8")
         (control / "input.jsonl").touch()
         (control / "lease").touch()
 
     def _save(self, job):
         control = root() / "jobs" / job["id"]
-        temporary = control / "meta.tmp"
+        temporary = control / ("meta."+uuid.uuid4().hex+".tmp")
         temporary.write_text(json.dumps(job, ensure_ascii=False), "utf-8")
         temporary.replace(control / "meta.json")
 
-    def start(self, command, session="", cwd="/workspace", timeout=60, owner="user", task_id="", request_id=""):
+    def start(self, command, session="", cwd="/workspace", timeout=60, owner="user", task_id="", request_id="", project=None):
         if not isinstance(command, str) or not command.strip() or len(command) > 32000 or "\x00" in command:
             raise ValueError("命令须为 1～32000 字符。")
         if type(timeout) is not int or not 1 <= timeout <= 300:
@@ -186,7 +193,7 @@ class TerminalManager:
         status = self.status()
         if not status["ready"]:
             raise RuntimeError(status["error"])
-        with self.lock:
+        with START_LOCK, self.lock:
             requests = root() / "requests"
             requests.mkdir(exist_ok=True)
             receipt = requests / request_id
@@ -199,16 +206,23 @@ class TerminalManager:
                 raise RuntimeError("任务已结束，拒绝启动新命令。")
             if session in self.file_operations:
                 raise RuntimeError("本会话正在导入或读取工作文件，请稍后再执行命令。")
-            if sum(j["state"] in ACTIVE for j in self.jobs.values()) >= 3:
+            if sum(j["state"] in ACTIVE for j in self.list()["jobs"]) >= 3:
                 raise RuntimeError("最多同时执行 3 个命令，请先停止或等待已有命令。")
-            if any(j["state"] in ACTIVE and j["session"] == session for j in self.jobs.values()):
+            if any(j["state"] in ACTIVE and j["session"] == session for j in self.list()["jobs"]):
                 raise RuntimeError("本会话已有命令执行中，请先停止或等待结束。")
-            work = workspace(session)
+            if project is not None:
+                from .project_workspace import current, clean_root
+                project = current(project)
+                if not project['commands']: raise ValueError('主目录未授权命令')
+                work = clean_root(project['primary'])
+                for reference in project['references']: clean_root(reference)
+            else:
+                work = workspace(session)
             if not inside(work / PurePosixPath(cwd).relative_to("/workspace"), work).is_dir():
                 raise ValueError("当前目录不存在，请在终端创建目录后重试。")
             ident = uuid.uuid4().hex
             control = root() / "jobs" / ident; control.mkdir(parents=True)
-            self._prepare(control, work, command, cwd, timeout)
+            self._prepare(control, work, command, cwd, timeout, project['references'] if project else [], bool(project))
             (control / "output.bin").touch()
             job = dict(id=ident, request_id=request_id, session=session, command=command, cwd=cwd, timeout=timeout,
                        owner=owner, task_id=task_id, created=time.time(), ended=None, state="starting", exit_code=None,
@@ -289,7 +303,7 @@ class TerminalManager:
                     try:
                         value = json.loads(file.read_text("utf-8"))
                         if value["id"] not in jobs:
-                            if value["state"] in ACTIVE:
+                            if value["state"] in ACTIVE and not live_lease(value["id"]):
                                 value.update(state="interrupted", error="后端已重启；监督进程会在租约过期后停止。")
                             jobs[value["id"]] = value
                     except (OSError, ValueError, KeyError):
@@ -307,7 +321,7 @@ class TerminalManager:
                 job = json.loads((root() / "jobs" / job_id / "meta.json").read_text("utf-8"))
             except (OSError, ValueError):
                 raise ValueError("找不到此命令记录。") from None
-            if job["state"] in ACTIVE:
+            if job["state"] in ACTIVE and not live_lease(job_id):
                 job.update(state="interrupted", error="后端已重启；监督进程会在租约过期后停止。")
             return job
 
@@ -343,16 +357,19 @@ class TerminalManager:
     def cancel(self, job_id):
         with self.lock:
             job = self.get(job_id)
-            if job_id in self.jobs and job["state"] in ACTIVE:
+            if job["state"] in ACTIVE:
                 (root() / "jobs" / job_id / "stop").touch()
-                self.jobs[job_id]["state"] = "stopping"; self._save(self.jobs[job_id])
+                if job_id in self.jobs:
+                    self.jobs[job_id]["state"] = "stopping"; self._save(self.jobs[job_id])
+                else:
+                    job['state'] = 'stopping'; self._save(job)
             return {"ok": True, "job": self.get(job_id)}
 
     def cancel_task(self, task_id):
         with self.lock:
             self.cancelled_tasks.add(task_id)
-            for j in list(self.jobs.values()):
-                if j["task_id"] == task_id and j["state"] in ACTIVE:
+            for j in self.list()["jobs"]:
+                if j.get("task_id") == task_id and j["state"] in ACTIVE:
                     self.cancel(j["id"])
 
     def shutdown(self):

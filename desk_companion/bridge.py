@@ -18,12 +18,30 @@ class Bridge:
     def collaboration_action(self, action: dict) -> dict:
         return self._host.collaboration.action(action)
 
+    def project_workspace(self, operation="load", **args):
+        from . import project_workspace as project
+        if operation == "pick":
+            from .local_sources import pick
+            return pick("folder", args.get("request_id", ""), stage_selection=False)
+        if operation == "load": return {"ok": True, "workspace": project.load()}
+        if operation == "save": return project.save(**args)
+        if operation == "tree": return project.tree(**args)
+        if operation == "read": return project.read(**args)
+        if operation == "write": return project.write(**args)
+        raise ValueError("未知工作区操作")
+
     def terminal_status(self, refresh=False, distro=None):
         from .terminal import manager
         return manager().status(refresh, distro)
 
-    def terminal_start(self, command, session="", cwd="/workspace", timeout=60, owner="user", task_id="", request_id=""):
+    def terminal_start(self, command, session="", cwd="/workspace", timeout=60, owner="user", task_id="", request_id="", workspace_revision=""):
         from .terminal import manager
+        if session.startswith("project:"):
+            from . import project_workspace as project
+            cfg = project.load()
+            if session != "project:"+cfg["primary"] or workspace_revision != cfg["revision"]: raise ValueError("工作目录已切换，请重新打开终端")
+            with project.lease(cfg["primary"]):
+                return manager().start(command, session, cwd, timeout, owner, task_id, request_id, project=cfg)
         return manager().start(command, session, cwd, timeout, owner, task_id, request_id)
 
     def terminal_list(self, session=None):

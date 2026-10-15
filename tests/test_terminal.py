@@ -59,6 +59,17 @@ class TerminalTests(unittest.TestCase):
         remaining = self.manager.read(ident, value["offset"])
         self.assertEqual(base64.b64decode(value["data"]) + base64.b64decode(remaining["data"]) + base64.b64decode(self.manager.read(ident, remaining["offset"])["data"]), data)
 
+    def test_active_worker_command_is_visible_and_cancellable_from_another_manager(self):
+        ident=uuid.uuid4().hex
+        folder=terminal.root()/'jobs'/ident;folder.mkdir(parents=True)
+        job=dict(id=ident,state='running',session='project:fixture',created=1,output_bytes=0,task_id='coding-one')
+        (folder/'meta.json').write_text(json.dumps(job));(folder/'lease').touch();(folder/'output.bin').touch()
+        self.assertEqual(self.manager.get(ident)['state'],'running')
+        self.assertEqual(self.manager.list()['jobs'][0]['state'],'running')
+        self.manager.cancel_task('coding-one')
+        self.assertTrue((folder/'stop').exists())
+        self.assertEqual(self.manager.get(ident)['state'],'stopping')
+
     def test_retry_receipt_does_not_reexecute_a_job_outside_recent_history(self):
         ident, request_id = uuid.uuid4().hex, uuid.uuid4().hex
         directory = terminal.root() / "jobs" / ident; directory.mkdir(parents=True)

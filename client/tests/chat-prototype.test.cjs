@@ -19,7 +19,7 @@ function load(name) {
     module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
   const mod = new Module(filename, module); mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
   const original = mod.require.bind(mod);
-  mod.require = id => markdownModules[id] || (id.endsWith('.css') ? {} : id === './startup' ? { startupReady() {} } : id.startsWith('./') ? load(id.slice(2)) : original(id));
+  mod.require = id => markdownModules[id] || (id.endsWith('.css') ? {} : id === './release' ? { CURRENT_RELEASE: {version:'0.2.3'} } : id === './startup' ? { startupReady() {} } : id.startsWith('./') ? load(id.slice(2)) : original(id));
   mod._compile(compiled, filename); return mod.exports;
 }
 const { initialDemo, demoReducer: reduce, restoreDemo, DEMO_STORAGE } = load('chat-prototype-state');
@@ -103,7 +103,7 @@ test('agent identities, group routing and private memory survive restore without
 
 test('UI sends while running, preserves per-conversation drafts and targets supplements to the selected task', async () => {
   const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   const composer = () => view.root.findByProps({ 'aria-label': '原型消息' });
   await act(async () => composer().props.onChange({ target: { value: '运行中也能聊天' } }));
   assert.equal(button(view, '发送↑').props.disabled, false);
@@ -130,7 +130,7 @@ test('UI sends while running, preserves per-conversation drafts and targets supp
 test('UI creates groups and Agent settings; reset is explicit and does not touch unrelated storage', async () => {
   const { saved } = environment(); saved.set('real-chat-sentinel', 'keep');
   const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   await act(async () => button(view, '新建协作群').props.onClick());
   let modal = view.root.findByProps({ role: 'dialog' });
   await act(async () => modal.findAllByType('input').find(node => node.props.type !== 'checkbox').props.onChange({ target: { value: '技术观察' } }));
@@ -150,7 +150,7 @@ test('UI creates groups and Agent settings; reset is explicit and does not touch
 
 test('automatic simulation is opt-in and timers stop when the view closes', async () => {
   const { timers } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   assert.equal(timers.size, 0);
   await act(async () => button(view, '自动演示').props.onClick()); assert.equal(timers.size, 1);
   await act(async () => [...timers.values()][0]());
@@ -161,7 +161,7 @@ test('automatic simulation is opt-in and timers stop when the view closes', asyn
 
 test('Chinese IME Enter and Shift+Enter do not submit a draft', async () => {
   const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   const composer = () => view.root.findByProps({ 'aria-label': '原型消息' });
   await act(async () => composer().props.onChange({ target: { value: '中文输入' } }));
   const before = JSON.parse(saved.get(DEMO_STORAGE)).messages.length;
@@ -204,13 +204,13 @@ const contextEvent = (rest = {}) => ({ preventDefault() {}, currentTarget: { get
 
 test('normal context menu manages conversations; private memory appears only in developer mode', async () => {
   const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   const dm = () => view.root.findByProps({ 'data-companion': 'research' });
   await act(async () => dm().props.onContextMenu(contextEvent()));
   assert(button(view, '删除对话')); assert(!button(view, '调试伙伴记忆'));
   await act(async () => view.root.findByProps({ role: 'menu' }).props.onKeyDown({ key: 'Escape', preventDefault() {} }));
   assert.equal(view.root.findAllByProps({ role: 'menu' }).length, 0);
-  await act(async () => button(view, '开发者模式').props.onClick());
+  for(let i=0;i<5;i++) await act(async () => view.root.findByProps({'data-product-version':true}).props.onClick());
   assert.equal(saved.get('tebb.developer-mode'), 'true');
   await act(async () => dm().props.onContextMenu(contextEvent()));
   await act(async () => button(view, '调试伙伴记忆').props.onClick());
@@ -221,7 +221,7 @@ test('normal context menu manages conversations; private memory appears only in 
   const state = JSON.parse(saved.get(DEMO_STORAGE));
   assert.equal(state.agents[1].memory, '只给阿探的偏好');
   assert(!JSON.stringify(state.messages).includes('只给阿探的偏好'));
-  await act(async () => button(view, '关闭开发者模式').props.onClick());
+  for(let i=0;i<5;i++) await act(async () => view.root.findByProps({'data-product-version':true}).props.onClick());
   await act(async () => dm().props.onKeyDown(contextEvent({ key: 'F10', shiftKey: true })));
   assert(!button(view, '调试伙伴记忆'));
   await act(async () => view.root.findByProps({ className: 'cp-menu-dismiss' }).props.onMouseDown());
@@ -231,7 +231,7 @@ test('normal context menu manages conversations; private memory appears only in 
 
 test('delete inactive DM removes history, preserves companions and opens a fresh conversation', async () => {
   const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   let dm = view.root.findByProps({ 'data-companion': 'writer' });
   await act(async () => dm.props.onClick());
   await act(async () => view.root.findByProps({ 'aria-label': '原型消息' }).props.onChange({ target: { value: '待删除消息' } }));
@@ -251,7 +251,7 @@ test('delete inactive DM removes history, preserves companions and opens a fresh
 
 test('active conversation deletion is disabled and normal companion settings hide memory', async () => {
   environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   const group = view.root.findAllByType('button').find(b => b.props.className?.includes('cp-conversation') && text(b).includes('AI 研究室'));
   await act(async () => group.props.onContextMenu(contextEvent()));
   await act(async () => button(view, '删除对话').props.onClick());
@@ -290,7 +290,7 @@ test('Markdown formats messages, tables, fenced code and artifacts, and rejects 
 
 test('Markdown preview never submits, formatting preserves drafts, and an inserted source stays in this conversation', async () => {
   const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
-  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   const composer = () => view.root.findByProps({ 'aria-label': '原型消息' });
   const before = JSON.parse(saved.get(DEMO_STORAGE)).messages.length;
   await act(async () => composer().props.onChange({ target: { value: '**草稿重点**' } }));
@@ -334,6 +334,7 @@ test('normal App starts in core chat and keeps its draft mounted across settings
   const defaultModule = new Proxy({}, { get(_o, key) { return key === '__esModule' ? true : Empty; } });
   const modules = {
     './companion-ui': load('companion-ui'),
+    './workspace-shell': load('workspace-shell'),
     './live-collaboration': { LiveCollaboration: LiveStub },
     './debug': { debugPane: () => null, debugRequested: () => false, installDeskDebug() {} },
     './settings': { readStoredBackground: () => ({ url: '', error: '' }), SettingsPane: Empty },
@@ -369,9 +370,53 @@ test('normal App starts in core chat and keeps its draft mounted across settings
   await act(async () => button(view, '设置').props.onClick());
   assert.equal(root().props['data-pane'], 'settings');
   assert.equal(draft().props.value, '跨页保留的草稿'); assert.equal(unmounts, 0);
-  const rail = view.root.findAllByType('nav').find(n => n.props.className?.includes('tebb-app-rail'));
+  const rail = view.root.findByProps({'aria-label':'工作区快捷栏'});
   await act(async () => rail.findAllByType('button').find(n => n.props['aria-label'] === '伙伴聊天').props.onClick());
   assert.equal(root().props['data-pane'], 'collaboration'); assert.equal(draft().props.value, '跨页保留的草稿');
   assert.equal(mounts, 1);
   await act(async () => view.unmount()); assert.equal(unmounts, 1);
+});
+
+
+test('@ member picker supports filtering, keyboard selection, multiple mentions and IME without submitting', async () => {
+  const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
+  await act(async()=>{view=create(React.createElement(ChatPrototype,{standalone:true}));});
+  const composer=()=>view.root.findByProps({'aria-label':'原型消息'});
+  const before=JSON.parse(saved.get(DEMO_STORAGE)).messages.length;
+  await act(async()=>composer().props.onChange({target:{value:'@',selectionStart:1}}));
+  assert.equal(view.root.findAllByProps({role:'option'}).length,3);
+  await act(async()=>composer().props.onKeyDown({key:'ArrowDown',nativeEvent:{},preventDefault(){}}));
+  await act(async()=>composer().props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault(){}}));
+  assert.equal(composer().props.value,'@阿探 ');
+  assert.equal(JSON.parse(saved.get(DEMO_STORAGE)).messages.length,before);
+  await act(async()=>composer().props.onChange({target:{value:'@阿探 @墨',selectionStart:7}}));
+  assert.equal(view.root.findAllByProps({role:'option'}).length,1);
+  await act(async()=>composer().props.onKeyDown({key:'Enter',nativeEvent:{isComposing:true},preventDefault(){throw Error('IME must stay active');}}));
+  assert.equal(composer().props.value,'@阿探 @墨');
+  await act(async()=>composer().props.onKeyDown({key:'Enter',nativeEvent:{},preventDefault(){}}));
+  assert.equal(composer().props.value,'@阿探 @墨墨 ');
+  assert.equal(JSON.parse(saved.get(DEMO_STORAGE)).messages.length,before);
+  await act(async()=>view.unmount());
+});
+
+test('unified send carries chosen skill, model and scoped attachments without leaking them to another conversation', async () => {
+  environment();const {ChatPrototype}=load('chat-prototype');const state=initialDemo();state.messages=[];
+  state.skills=[{id:'code-review',description:'review code'}];state.models=[{id:'model-one',model:'test-model'}];
+  const files=[{id:'file-one',name:'source.md',kind:'file',path:'E:/fixture/source.md',chars:20}];
+  const actions=[];const live={state,busy:false,error:'',act:async action=>{actions.push(action);return true;}};let view;
+  await act(async()=>{view=create(React.createElement(ChatPrototype,{live,attachments:files,onDetach(){}}));});
+  const composer=()=>view.root.findByProps({'aria-label':'协作消息'});
+  await act(async()=>composer().props.onChange({target:{value:'/code',selectionStart:5}}));
+  await act(async()=>view.root.findByProps({role:'option'}).props.onClick());
+  await act(async()=>view.root.findByProps({'aria-label':'本轮模型'}).props.onChange({target:{value:'model-one'}}));
+  await act(async()=>composer().props.onChange({target:{value:'检查这个文件',selectionStart:6}}));
+  assert.equal(view.root.findAllByProps({'aria-label':'消息类型'}).length,0);
+  await act(async()=>view.update(React.createElement(ChatPrototype,{live:{...live,state:{...state,selected:'dm-research'}},attachments:files,onDetach(){}})));
+  await act(async()=>composer().props.onChange({target:{value:'另一个会话',selectionStart:5}}));
+  await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  assert.deepEqual(actions[0].attachments,[]);assert.deepEqual(actions[0].skills,[]);assert.equal(actions[0].mode,'auto');
+  await act(async()=>view.update(React.createElement(ChatPrototype,{live,attachments:files,onDetach(){}})));
+  await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  assert.deepEqual(actions[1].attachments,['file-one']);assert.deepEqual(actions[1].skills,['code-review']);assert.equal(actions[1].model_id,'model-one');
+  await act(async()=>view.unmount());
 });

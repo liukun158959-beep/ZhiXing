@@ -259,7 +259,7 @@ def _stage(paths, kind, job):
     return {'ok': True, 'sources': sources, 'errors': errors}
 
 
-def pick(kind, request_id=''):
+def pick(kind, request_id='', stage_selection=True):
     if kind not in ('file', 'folder'): raise ValueError('请选择文件或文件夹。')
     module = 'desk_companion.local_picker' if os.name == 'nt' else 'desk_companion.local_sources'
     with _operation(request_id) as job:
@@ -276,7 +276,7 @@ def pick(kind, request_id=''):
             _check(job)
             if process.returncode: raise RuntimeError('文件选择窗口未能打开，请改用路径输入。')
             paths = json.loads(stdout)
-            return _stage(paths, kind, job) if paths else {'ok': True, 'sources': [], 'errors': []}
+            return (_stage(paths, kind, job) if stage_selection else {'ok': True, 'paths': paths}) if paths else {'ok': True, 'sources': [], 'paths': [], 'errors': []}
         except SelectionCancelled:
             return _empty()
 

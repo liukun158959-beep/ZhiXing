@@ -28,11 +28,13 @@ import { FeishuPane, feishuLoggedIn, feishuWaiting, type FeishuSnap } from "./fe
 import { FeishuAgentPane } from "./feishu-agent";
 import { AgentMonitor } from "./agent-monitor";
 import { AgentDebugDialog } from "./agent-debug";
+import { WorkspaceRuns } from "./workspace-runs";
+import { WorkspaceRail } from "./workspace-shell";
 import { RailButton, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
 import "./chat-prototype.css";
 import { TopToolbar } from "./top-toolbar";
 import { LocalSourcesDialog, type LocalSource } from "./local-sources";
-import { SideWorkspace, previewSource, openTerminal } from "./side-workspace";
+import { SideWorkspace, previewSource, openTerminal, openProject } from "./side-workspace";
 import { LoadingText } from "./loading-text";
 import { AutomationPane } from "./automation";
 import { VideoPane, WikiConnectionSettings } from "./video";
@@ -1949,8 +1951,10 @@ export function App() {
     }
   };
 
+  useEffect(() => { if (!debugKind && pane === 'chat' && chatFace === 'thread' && !noteSessionId) setPane('collaboration'); }, [pane, chatFace, noteSessionId]);
+  const coreChat = pane === "collaboration" || (!debugKind && pane === "chat" && chatFace === "thread" && !noteSessionId);
   const changeDeveloperMode = (value: boolean) => {
-    setDeveloperMode(value); const notice = saveDeveloperMode(value); if (notice) setError(notice);
+    setDeveloperMode(value); setComposerNotice(value ? "开发者模式已开启" : "开发者模式已关闭"); const notice = saveDeveloperMode(value); if (notice) setError(notice);
     if (!value) { setAgentDebugOpen(false); if (chatFace === "memory") { setChatFace("thread"); setPane("collaboration"); } }
   };
   const workspaceNavigation = <>
@@ -1959,12 +1963,10 @@ export function App() {
     <RailButton icon="board" label="今日看板" active={pane === "board"} onClick={() => void openBoard()} />
     <RailButton icon="feishu" label="飞书" active={pane === "feishu"} onClick={() => void openFeishu()} />
     <RailButton icon="automation" label="定时任务" active={pane === "automation"} onClick={() => setPane("automation")} />
-    <RailButton icon="tasks" label="聊天监控台" active={pane === "monitor"} onClick={() => setPane("monitor")} />
+    <RailButton icon="tasks" label="执行任务" active={pane === "monitor"} onClick={() => setPane("monitor")} />
     <RailButton icon="video" label="视频读取" active={pane === "video"} onClick={() => setPane("video")} />
-    <RailButton icon="terminal" label="本机工具助手" active={pane === "chat" && chatFace === "thread"} onClick={() => { setNoteSessionId(null); setChatFace("thread"); setPane("chat"); }} />
     {developerMode && <RailButton icon="memory" label="旧助手记忆调试" active={pane === "chat" && chatFace === "memory"} onClick={() => void openMemory()} />}
     <RailButton icon="settings" label="设置" active={pane === "settings"} onClick={() => setPane("settings")} />
-    <RailButton icon="theme" label="切换主题" onClick={() => setDark(!dark)} />
     <RailButton icon="pet" label="唤出桌宠" onClick={() => { void invoke("set_pet_visible", { visible: true }).catch(err => setError(`唤出桌宠失败：${String(err)}`)); }} />
   </>;
 
@@ -1995,7 +1997,8 @@ export function App() {
       >
         {bgUrl ? <div className="desk-bg-scrim" data-bg-scrim /> : null}
       </div>
-      <aside hidden={pane !== "chat" || chatFace !== "thread"} style={pane !== "chat" || chatFace !== "thread" ? { display: "none" } : undefined} className="relative z-10 corner-brackets flex w-64 shrink-0 flex-col border-r border-border bg-card/80 backdrop-blur-md">
+      <WorkspaceRail developer={developerMode} onToggle={() => changeDeveloperMode(!developerMode)}>{workspaceNavigation}</WorkspaceRail>
+      <aside hidden style={{ display: "none" }} className="relative z-10 corner-brackets flex w-64 shrink-0 flex-col border-r border-border bg-card/80 backdrop-blur-md">
         <div className="px-4 py-5">
           <div className="ef-overline">AGENT WORKSPACE</div>
           <GlitchText className="mt-1 block text-lg font-semibold text-primary" intensity="low">
@@ -2114,33 +2117,37 @@ export function App() {
             <SideLink icon="today" label="今日" sub="today" selected={pane === "board"} onClick={() => openBoard()} />
             <SideLink icon="feishu" label="飞书" sub="feishu" selected={pane === "feishu"} onClick={() => void openFeishu()} />
             <SideLink icon="today" label="定时任务" sub="automation" selected={pane === "automation"} onClick={() => setPane("automation")} />
-            <SideLink icon="board" label="聊天监控台" sub="monitor" selected={pane === "monitor"} onClick={() => setPane("monitor")} />
+            <SideLink icon="board" label="执行任务" sub="monitor" selected={pane === "monitor"} onClick={() => setPane("monitor")} />
             <SideLink icon="video" label="视频读取" sub="video" selected={pane === "video"} onClick={() => setPane("video")} />
           </div>
         )}
       </aside>
       <main className="main-workspace relative z-10 flex min-w-0 flex-1 flex-col">
-        {pane !== "collaboration" && <TopToolbar title={pane === "chat" ? noteSessionId ? "笔记" : ({ thread: "对话", memory: "记忆", knowledge: "知识库" })[chatFace] :
-          ({ board: "今日看板", feishu: "飞书", settings: "设置", automation: "定时任务", monitor: "聊天监控台", video: "视频读取", collaboration: "伙伴聊天" })[pane]}
-          model={modelItems.find(m => m.id === activeModelId)?.model || ""} connected={!!info || !!debugKind} busy={busy || noteBusy} dark={dark}
-          onTheme={() => setDark(!dark)} onNewChat={() => { setPane("chat"); setChatFace("thread"); void newSession(); }}
+        <TopToolbar title={pane === "chat" ? noteSessionId ? "笔记" : ({ thread: "对话", memory: "记忆", knowledge: "知识库" })[chatFace] :
+          ({ board: "今日看板", feishu: "飞书", settings: "设置", automation: "定时任务", monitor: "执行任务", video: "视频读取", collaboration: "伙伴聊天" })[pane]}
+          model={modelItems.find(m => m.id === activeModelId)?.model ? `默认：${modelItems.find(m => m.id === activeModelId)?.model}` : ""} connected={!!info || !!debugKind} busy={busy || noteBusy} dark={dark}
+          onTheme={() => setDark(!dark)} onNewChat={() => { setPane("collaboration"); window.dispatchEvent(new CustomEvent("tebb-new-chat")); }}
           onMonitor={() => setPane("monitor")} onVideo={() => setPane("video")} onDebug={() => { changeDeveloperMode(true); setAgentDebugOpen(true); }}
-          onFile={() => setLocalDialog("file")} onFolder={() => setLocalDialog("folder")} onTerminal={openTerminal} />}
+          onFile={() => setLocalDialog("file")} onFolder={openProject} onTerminal={openTerminal} />
         {localDialog && <LocalSourcesDialog info={info} initialKind={localDialog} debug={!!debugPane()} onClose={() => { setLocalDialog(null); setLocalDialogMinimized(false); }} onPreview={previewSource} onMinimizedChange={setLocalDialogMinimized}
-          onAttach={sources => { setPickedAttachments(prev => [...new Map([...prev, ...sources].map(s => [s.id, s])).values()]); setLocalDialog(null); setPane("chat"); setChatFace("thread"); setNoteSessionId(null); }}
+          onAttach={sources => { setPickedAttachments(sources); setLocalDialog(null); setPane("collaboration"); setNoteSessionId(null); }}
           onIndex={source => knowledgeCall("add_knowledge", { doc_id: `local:${source.id}`, label: source.name })} />}
-        <SideWorkspace info={info} session={noteSessionId || thread?.sessionId || ""} onTerminalDraft={text => { if (pane === "collaboration") setComposeRequest({ id: Date.now(), text }); else { setDraft(previous => `${previous}${previous ? "\n\n" : ""}${text}`); setComposerNotice("终端输出已加入草稿，尚未发送。"); } }} enabled={pane === "collaboration" || (pane === "chat" && chatFace === "thread")} debug={!!debugKind}
+        <div className="tebb-page-body">
+        {!coreChat && <aside className="tebb-section-nav" aria-label="页面导航"><strong>{pane === 'settings' ? '偏好与连接' : pane === 'chat' && chatFace === 'knowledge' ? '知识库' : pane === 'feishu' ? '飞书空间' : pane === 'video' ? '视频资料' : '任务与工作'}</strong>
+          {(pane === 'settings') ? <><button onClick={() => setShowGuide(true)}>初始化引导</button><button onClick={releaseIntro.show}>版本介绍</button><button onClick={openProject}>工作目录与权限</button>{developerMode && <button onClick={() => setAgentDebugOpen(true)}>调用调试</button>}</> : pane === 'chat' && chatFace === 'knowledge' ? <><button onClick={() => void openKnowledge()}>刷新知识库</button><button onClick={() => setLocalDialog('file')}>添加本地资料</button><button onClick={openProject}>项目文件</button>{noteSessions.map(note => <button key={note.id} onClick={() => openNoteSession(note.id)}>{note.title || '笔记'}</button>)}</> : <><button onClick={() => void openBoard()}>今日看板</button><button onClick={() => setPane('monitor')}>执行任务</button><button onClick={() => setPane('automation')}>定时任务</button><button onClick={() => setPane('video')}>视频读取</button><button onClick={openProject}>项目文件</button></>}
+          <p>文件、引用与任务可以返回伙伴聊天继续处理。</p></aside>}
+        <SideWorkspace info={info} session={noteSessionId || thread?.sessionId || ""} onTerminalDraft={text => { if (noteSessionId && pane === "chat" && chatFace === "thread") { setDraft(previous => `${previous}${previous ? "\n\n" : ""}${text}`); setComposerNotice("内容已加入笔记提问草稿，尚未发送。"); } else { setComposeRequest({ id: Date.now(), text }); setPane("collaboration"); } }} enabled={true} debug={!!debugKind}
           suspended={agentDebugOpen || showGuide || !!cropSrc || releaseIntro.open || (!!localDialog && !localDialogMinimized)}
           attachments={pickedAttachments}
-          onAttach={sources => { setPickedAttachments(prev => [...new Map([...prev, ...sources].map(s => [s.id, s])).values()]); setPane("chat"); setChatFace("thread"); setNoteSessionId(null); setComposerNotice("资料已加入本机工具助手草稿，尚未发送。"); }}
+          onAttach={sources => { setPickedAttachments(sources); setPane("collaboration"); setNoteSessionId(null); }}
           onDetach={id => setPickedAttachments(prev => prev.filter(s => s.id !== id))}
-          onLink={url => { if (pane === "collaboration") setComposeRequest({ id: Date.now(), text: url }); else setDraft(text => `${text}${text ? "\n" : ""}${url}`); }}
-          onRequest={() => { if (pane !== "collaboration") { setPane("chat"); setChatFace("thread"); } }}>
-        <div className="tebb-core-chat" hidden={pane !== "collaboration"} style={{ display: pane === "collaboration" ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
-          {!debugKind && <Suspense fallback={<p className="p-6">正在连接伙伴…</p>}><LiveCollaboration composeRequest={composeRequest} info={info} navigation={workspaceNavigation} developerMode={developerMode} onDeveloperMode={changeDeveloperMode} /></Suspense>}
+          onLink={url => { if (noteSessionId && pane === "chat" && chatFace === "thread") setDraft(text => `${text}${text ? "\n" : ""}${url}`); else { setComposeRequest({ id: Date.now(), text: url }); setPane("collaboration"); } }}
+          onRequest={() => {}}>
+        <div className="tebb-core-chat" hidden={!coreChat} style={{ display: coreChat ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
+          {!debugKind && <Suspense fallback={<p className="p-6">正在连接伙伴…</p>}><LiveCollaboration attachments={pickedAttachments} onAttach={() => setLocalDialog("file")} onDetach={id => setPickedAttachments(old => old.filter(a => a.id!==id))} onProject={openProject} onFile={() => setLocalDialog("file")} onTerminal={openTerminal} composeRequest={composeRequest} info={info} developerMode={developerMode} onDeveloperMode={changeDeveloperMode} /></Suspense>}
         </div>
         <AnimatePresence mode="wait">
-          {pane === "collaboration" ? null : pane === "chat" && chatFace === "knowledge" ? (
+          {coreChat ? null : pane === "chat" && chatFace === "knowledge" ? (
             <motion.section
               key="knowledge"
               data-chat-face="knowledge"
@@ -2250,7 +2257,7 @@ export function App() {
               <div data-chat-bar="" className="border-t border-border px-6 py-4">
                 <div className="composer-toolbar mb-2">
                   <ModelPick modelId={activeModelId} items={modelItems} busy={busy || noteBusy} onChange={(id) => void useModel(id)} />
-                  <SamplingBar value={sampling} onChange={setSampling} />
+                  {developerMode && <SamplingBar value={sampling} onChange={setSampling} />}
                 </div>
                 <form
                   className="composer-form"
@@ -2315,7 +2322,7 @@ export function App() {
                     leading={
                       <>
                         <ModelPick modelId={activeModelId} items={modelItems} busy={busy} onChange={(id) => void useModel(id)} />
-                        <SamplingBar value={sampling} onChange={setSampling} />
+                        {developerMode && <SamplingBar value={sampling} onChange={setSampling} />}
                         <button
                           type="button"
                           data-knowledge-toggle=""
@@ -2329,7 +2336,7 @@ export function App() {
                     }
                   />
                 ) : (
-                  <div className="composer-toolbar"><ModelPick modelId={activeModelId} items={modelItems} busy={busy} onChange={(id) => void useModel(id)} /><SamplingBar value={sampling} onChange={setSampling} /></div>
+                  <div className="composer-toolbar"><ModelPick modelId={activeModelId} items={modelItems} busy={busy} onChange={(id) => void useModel(id)} />{developerMode && <SamplingBar value={sampling} onChange={setSampling} />}</div>
                 )}
                 {pickedAttachments.length > 0 && <div className="mb-2 flex flex-wrap gap-2">{pickedAttachments.map(source => <span key={source.id} className="desk-chip" data-chip-kind="attachment">
                   <button type="button" className="desk-menu-item" aria-label={`预览 ${source.name}`} onClick={() => previewSource(source)}>{source.name}{source.kind === "folder" ? ` · ${source.files?.length || 0} 个文件` : ` · ${source.chars} 字`}</button>
@@ -2524,9 +2531,10 @@ export function App() {
           ) : pane === "monitor" ? (
             <motion.section key="monitor" data-page="monitor" className="flex-1 overflow-y-auto px-8 py-6"
               initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <h1 className="text-2xl font-semibold">聊天监控台</h1>
+              <h1 className="text-2xl font-semibold">执行任务</h1>
               <p className="mt-2 text-sm text-muted-foreground">查看桌面与飞书会话的执行过程，停止任务或继续聊天。</p>
-              <AgentMonitor info={info} debug={boardClock !== null} />
+              <WorkspaceRuns info={info} onOpen={conversation => { if (!info) return; void rpc(info, 'collaboration_action', { action: { type: 'select', id: conversation, conversation, request_id: crypto.randomUUID() } }).then(() => { setPane('collaboration'); window.dispatchEvent(new CustomEvent('tebb-show-tasks')); }).catch(e => setError(String(e))); }} />
+              <details className="mt-6"><summary>其他渠道与旧任务记录</summary><AgentMonitor info={info} debug={boardClock !== null} /></details>
             </motion.section>
           ) : (
             <motion.section
@@ -2560,8 +2568,9 @@ export function App() {
           )}
         </AnimatePresence>
         </SideWorkspace>
+        </div>
       </main>
-      {pane !== "collaboration" && <nav className="cp-rail tebb-app-rail relative z-10" aria-label="工作区快捷栏"><div className="cp-rail-section">{workspaceNavigation}</div><div className="cp-rail-bottom"><RailButton icon="developer" label={developerMode ? "关闭开发者模式" : "开发者模式"} active={developerMode} onClick={() => changeDeveloperMode(!developerMode)} /></div></nav>}
+
       {error && pane !== "chat" && <div className="tebb-global-error" role="alert"><span>{error}</span><button type="button" aria-label="关闭错误提示" onClick={() => setError("")}>×</button></div>}
       {cropSrc ? (
         <BackgroundCrop

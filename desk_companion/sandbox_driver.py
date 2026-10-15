@@ -25,8 +25,8 @@ OUTPUT_LIMIT = 4 * 1024 * 1024
 WORKSPACE_LIMIT = 128 * 1024 * 1024
 
 
-def sandbox_args(workspace, command, cwd="/workspace"):
-    return ["/usr/bin/bwrap", "--unshare-all", "--unshare-user", "--disable-userns", "--assert-userns-disabled",
+def sandbox_args(workspace, command, cwd="/workspace", references=None):
+    args = ["/usr/bin/bwrap", "--unshare-all", "--unshare-user", "--disable-userns", "--assert-userns-disabled",
             "--die-with-parent", "--new-session", "--cap-drop", "ALL", "--clearenv",
             "--ro-bind", "/usr", "/usr", "--symlink", "usr/bin", "/bin",
             "--symlink", "usr/lib", "/lib", "--symlink", "usr/lib64", "/lib64",
@@ -40,22 +40,28 @@ def sandbox_args(workspace, command, cwd="/workspace"):
             "try: os.setsid()\nexcept PermissionError: pass\n"
             "fcntl.ioctl(0,termios.TIOCSCTTY,0)\n"
             "os.execv('/bin/bash',['bash','--noprofile','--norc','-c',sys.argv[1]])", command]
+    if references:
+        position = args.index('--chdir')
+        mounts = ['--dir', '/references']
+        for i, path in enumerate(references): mounts += ['--ro-bind', str(path), f'/references/{i}']
+        args[position:position] = mounts
+    return args
 
 
 def emit(**values):
     print(json.dumps(values), flush=True)
 
 
-def limits():
-    resource.setrlimit(resource.RLIMIT_AS, (256 * 1024**2, 256 * 1024**2))
+def limits(project=False):
+    resource.setrlimit(resource.RLIMIT_AS, (2048 * 1024**2, 2048 * 1024**2) if project else (256 * 1024**2, 256 * 1024**2))
     resource.setrlimit(resource.RLIMIT_NPROC, (64, 64))
     resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
     resource.setrlimit(resource.RLIMIT_FSIZE, (32 * 1024**2, 32 * 1024**2))
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    resource.setrlimit(resource.RLIMIT_CPU, (60, 60))
+    resource.setrlimit(resource.RLIMIT_CPU, (120, 120) if project else (60, 60))
 
 
-def workspace_size(path):
+def workspace_size(path, project=False):
     size = count = 0
     for parent, dirs, files in os.walk(path, followlinks=False):
         count += len(dirs) + len(files)
@@ -64,9 +70,18 @@ def workspace_size(path):
                 size += (Path(parent) / name).lstat().st_size
             except FileNotFoundError:
                 pass
-        if size > WORKSPACE_LIMIT or count > 10000:
+        if size > (2*1024**3 if project else WORKSPACE_LIMIT) or count > (150000 if project else 10000):
             return False
     return True
+
+
+def lease_alive(path, clock, now):
+    # Host and WSL wall clocks can differ. Observe heartbeat changes using only
+    # the supervisor's monotonic clock, never subtract a host file time.
+    stamp = path.stat().st_mtime_ns
+    if clock.get('stamp') != stamp:
+        clock.update(stamp=stamp, observed=now)
+    return now - clock['observed'] <= 8
 
 
 def main(control):
@@ -82,10 +97,11 @@ def main(control):
     pending = bytearray()
     started = time.monotonic()
     last_size = 0
+    lease_clock = {}
     try:
-        process = subprocess.Popen(sandbox_args(request["workspace"], request["command"], request["cwd"]),
+        process = subprocess.Popen(sandbox_args(request["workspace"], request["command"], request["cwd"], request.get("references")),
                                    stdin=slave, stdout=slave, stderr=slave,
-                                   start_new_session=True, preexec_fn=limits,
+                                   start_new_session=True, preexec_fn=lambda: limits(request.get("project", False)),
                                    env={"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"})
         os.close(slave); slave = -1
         os.set_blocking(master, False)
@@ -97,11 +113,11 @@ def main(control):
                     reason = "cancelled"
                 elif now - started > request["timeout"]:
                     reason = "timed_out"
-                elif time.time() - (control / "lease").stat().st_mtime > 8:
+                elif not lease_alive(control / "lease", lease_clock, now):
                     reason = "interrupted"
                 elif now - last_size > 1:
                     last_size = now
-                    if not workspace_size(request["workspace"]):
+                    if not workspace_size(request["workspace"], request.get("project", False)):
                         reason = "workspace_limit"
                 if reason:
                     break

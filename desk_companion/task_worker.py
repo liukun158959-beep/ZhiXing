@@ -22,7 +22,7 @@ def main():
             try:
                 execute(request, emit)
             except Exception as exc:
-                emit("failure", {"type": type(exc).__name__, "message": getattr(exc, "public_message", "协作执行失败（" + type(exc).__name__ + "），请查看调用记录、模型配置或网络。未执行外部写入。")})
+                emit("failure", {"type": type(exc).__name__, "message": getattr(exc, "public_message", "协作执行失败（" + type(exc).__name__ + "），请查看调用记录、模型配置或网络。请核查任务的文件改动与命令回执。")})
             return
         if request.get("workflow") == "debug_explain":
             from .agent_debug import execute_explanation

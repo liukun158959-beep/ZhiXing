@@ -23,7 +23,7 @@ from .host import HeadlessApp
 # 白名单：bridge 上可无头调用的数据方法。窗口/UI 类（close_bubble/fit_card/
 # open_url/ask_today/ask_logs/close_board/send_chat）与流式（send_board_chat）不在此。
 RPC_METHODS = frozenset({
-    "load_collaboration", "collaboration_action",
+    "load_collaboration", "collaboration_action", "project_workspace",
     "terminal_status", "terminal_start", "terminal_list", "terminal_read", "terminal_input", "terminal_cancel",
     "terminal_files", "terminal_import_files", "terminal_preview_file",
     "load_video_login", "save_video_login", "clear_video_login",
@@ -153,10 +153,13 @@ def _pet_asset(connection, request_path: str):
 
 
 
-def _dispatch(method: str, args: dict) -> dict:
+def _dispatch(method: str, args: dict, preview=False) -> dict:
     # 按白名单派发到 Bridge。不在白名单直接失败，不静默兜底。
     if method not in RPC_METHODS:
         return {"ok": False, "error": f"方法不允许或不存在：{method}"}
+    if method == 'collaboration_action' and preview:
+        try: return {'ok': True, 'result': HOST.collaboration.action(args.get('action'), readonly=True)}
+        except Exception as exc: return {'ok': False, 'error': str(exc)}
     fn = getattr(HOST.bridge, method, None)
     if fn is None:
         return {"ok": False, "error": f"Bridge 无此方法：{method}"}
@@ -166,7 +169,7 @@ def _dispatch(method: str, args: dict) -> dict:
             from ..agent_debug import context
             with context(session=HOST.state.session_id, channel="backend"):
                 return target(**kwargs)
-        if method.startswith("terminal_") or method in {"load_collaboration", "collaboration_action", "check_updates", "list_agent_tasks", "get_agent_task", "cancel_agent_task", "continue_agent_task", "save_agent_task_settings", "load_task_progress",
+        if method.startswith("terminal_") or method in {"load_collaboration", "collaboration_action", "project_workspace", "check_updates", "list_agent_tasks", "get_agent_task", "cancel_agent_task", "continue_agent_task", "save_agent_task_settings", "load_task_progress",
                       "list_debug_calls", "get_debug_call", "set_debug_recording", "explain_debug_call",
                       "load_video_settings", "save_video_settings", "list_task_videos", "export_task_video",
                       "load_wiki_connection", "save_wiki_connection",
@@ -219,7 +222,7 @@ async def _handler(ws):
             method = str(msg.get("method", ""))
             args = msg.get("args") or {}
             # 数据方法可能有阻塞 IO（飞书/GitHub），丢线程池不堵事件循环
-            res = await asyncio.to_thread(_dispatch, method, args)
+            res = await asyncio.to_thread(_dispatch, method, args, preview)
             await ws.send(json.dumps({"type": "rpc_result", "id": msg.get("id"), "result": res}))
         elif mtype == "chat":
             await _handle_chat(ws, msg)

@@ -6,6 +6,7 @@ const Module = require('node:module');
 const ts = require('typescript');
 const React = require('react');
 const { act, create } = require('react-test-renderer');
+global.window = new EventTarget();
 function load(name, mocks) {
   const filename = path.resolve(__dirname, '../src/client', name + '.tsx');
   const code = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: {
@@ -74,4 +75,25 @@ test('interpretation only creates a draft and output is never submitted automati
   assert.equal(draft, ''); await act(async () => button(view, '解读输出').props.onClick());
   assert(draft.includes('echo hi')); assert(draft.includes('hi')); assert(draft.includes('退出码：0')); assert(!calls.includes('chat'));
   await act(async () => view.unmount());
+});
+
+
+test('manual terminal binds the authorized project and sends its grant revision', async () => {
+  const calls=[];const project={primary:'E:/fixture/project',revision:'grant-one',commands:true};
+  const {TerminalPane}=fixture(async(_info,method,args)=>{
+    calls.push({method,args});
+    if(method==='project_workspace')return {ok:true,workspace:project};
+    if(method==='terminal_status')return {ready:true,distro:'Ubuntu',error:''};
+    if(method==='terminal_list')return {jobs:[]};
+    if(method==='terminal_start')return {job:{...job,state:'succeeded',session:'project:'+project.primary}};
+    if(method==='terminal_read')return {job:{...job,state:'succeeded'},data:'',offset:0};
+    return {ok:true};
+  });
+  let view;await act(async()=>{view=create(React.createElement(TerminalPane,{info,session:'old-session',attachments:[],onDraft(){},onPreview(){}}));});
+  await act(async()=>view.root.findByProps({'aria-label':'要执行的命令'}).props.onChange({target:{value:'python3 -m unittest'}}));
+  await act(async()=>button(view,'执行').props.onClick());
+  const sent=calls.find(c=>c.method==='terminal_start').args;
+  assert.equal(sent.session,'project:E:/fixture/project');assert.equal(sent.workspace_revision,'grant-one');
+  assert(text(view.toJSON()).includes('项目主目录'));
+  await act(async()=>view.unmount());
 });

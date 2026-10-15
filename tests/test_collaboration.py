@@ -128,6 +128,83 @@ class CollaborationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "头像无效"):
                 self.action(type="agent", agent={**state["agents"][0], "avatar": avatar})
 
+    def test_auto_answer_stays_chat_and_auto_task_hands_off_without_manual_mode(self):
+        self.action(type='send', text='你好', mode='auto', target='')
+        self.service.tick(); root = self.state()['runs'][-1]
+        self.assertEqual(root['kind'],'route'); self.assertEqual(len(self.work.items),0)
+        self.chat.complete('collab:'+root['id']+':0',json.dumps(dict(mode='answer',text='你好！')))
+        self.service.tick(); self.assertEqual(self.state()['runs'][-1]['answer'],'你好！')
+        self.assertEqual(len(self.state()['runs']),1)
+        self.action(type='send',text='研究并写成报告',mode='auto',target='')
+        self.service.tick(); root=self.state()['runs'][-1]
+        self.chat.complete('collab:'+root['id']+':0',json.dumps(dict(mode='task',instructions='研究并写成报告')))
+        self.service.tick(); child=self.state()['runs'][-1]
+        self.assertEqual(child['kind'],'plan');self.assertEqual(child['parent'],root['id'])
+        self.assertIn('研究并写成报告',child['input'] if 'input' in child else child['title'])
+
+    def test_multiple_mentions_limit_delegation_and_literal_code_is_not_a_mention(self):
+        self.action(type='send',text='@阿探 @墨墨 一起研究',mode='auto',target='')
+        self.service.tick(); root=self.state()['runs'][-1]
+        self.chat.complete('collab:'+root['id']+':0',json.dumps(dict(mode='answer',text='不能只聊天')))
+        self.service.tick()
+        with transaction(self.service.path) as (state,_):
+            self.assertEqual({m['id'] for m in state['runs'][-1]['members']},{'research','writer'})
+        self.action(type='send',text='解释代码：```python\n@dataclass\nclass A: pass\n```',mode='auto',target='')
+        with self.assertRaises(ValueError): self.action(type='send',text='@不存在 帮忙',mode='auto',target='')
+
+    def test_browser_capability_cannot_enable_or_execute_local_tools(self):
+        with self.assertRaises(ValueError):
+            self.service.action(dict(type='add_coder',request_id=uuid.uuid4().hex),readonly=True)
+        agent=self.state()['agents'][0]
+        with self.assertRaises(ValueError):
+            self.service.action(dict(type='agent',agent={**agent,'tools':['文件编辑']},request_id=uuid.uuid4().hex),readonly=True)
+        self.action(type='add_coder')
+        self.service.action(dict(type='send',conversation='dm-coder',text='写文件',mode='auto',target='',request_id=uuid.uuid4().hex))
+        with self.assertRaises(ValueError):
+            self.service.action(dict(type='send',conversation='dm-coder',text='写文件',mode='auto',target='',request_id=uuid.uuid4().hex),readonly=True)
+
+    def test_legacy_history_import_is_once_and_continuable_without_changing_original(self):
+        from desk_companion.memory import append_chat, memory_path
+        append_chat('user','旧对话问题','legacy-one'); append_chat('pet','旧对话回答','legacy-one')
+        raw=memory_path().read_bytes()
+        with transaction(self.service.path) as (state,_): state.pop('legacy_imported',None)
+        reopened=Collaboration(path=self.service.path,managers=self.service.managers,start=False)
+        try:
+            state=reopened.snapshot()['state']; conversation=next(c for c in state['conversations'] if c.get('legacy'))
+            self.assertEqual([m['text'] for m in state['messages'] if m['conversation']==conversation['id']],['旧对话问题','旧对话回答'])
+            reopened.action(dict(type='send',conversation=conversation['id'],text='继续',mode='auto',target='',request_id=uuid.uuid4().hex))
+            with transaction(self.service.path) as (current,_): self.assertIn('旧对话回答',json.dumps(current['runs'][-1]['context'],ensure_ascii=False))
+            self.assertEqual(memory_path().read_bytes(),raw)
+        finally: reopened.shutdown()
+
+    def test_coder_real_file_tool_loop_records_failure_fix_and_fresh_verification(self):
+        from desk_companion import project_workspace as project
+        folder=Path(self.temp.name)/'code';folder.mkdir();(folder/'app.py').write_bytes(b'value = 1\n')
+        cfg=project.save(str(folder),[],True,True)['workspace']
+        request=self.request(role=dict(id='coder',name='码可',role='修改并验证',tools=['工作区读取','文件编辑','终端'],memory=''))
+        request.update(workspace=cfg,budget=6)
+        calls=[];events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(messages)
+                step=len(calls)
+                if step in (1,3,5):
+                    name='workspace_run';arguments=dict(command='python -m unittest',timeout=20)
+                elif step in (2,4):
+                    name='workspace_write';arguments=dict(path='app.py',text='value = 2\n' if step==2 else 'value = 3\n',revision=project.read('main','app.py')['revision'])
+                else: return dict(message=dict(content='已修改，验证结果见回执。'),usage={})
+                return dict(message=dict(role='assistant',tool_calls=[dict(id=str(step),type='function',function=dict(name=name,arguments=json.dumps(arguments)))]),usage={})
+        count=[0]
+        def command(*_):
+            count[0]+=1
+            return dict(command='python -m unittest',state='failed' if count[0]<3 else 'succeeded',exit_code=1 if count[0]<3 else 0,output='fixture test',changes=[])
+        with patch('desk_companion.project_workspace.run',side_effect=command): execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual((folder/'app.py').read_text(),'value = 3\n')
+        self.assertEqual(len([e for e in events if e[0]=='file_change']),2)
+        self.assertEqual([e[1]['exit_code'] for e in events if e[0]=='verification'],[1,1,0])
+        self.assertIn('实际验证回执',events[-1][1])
+        self.assertNotIn('fixture-key',json.dumps(events))
+
     def test_duplicate_messages_and_separate_chat_queue(self):
         action = dict(type="send", conversation="group-research", text="比较材料", target="", mode="task", request_id="same-request-0001")
         self.service.action(action); self.service.action(action)

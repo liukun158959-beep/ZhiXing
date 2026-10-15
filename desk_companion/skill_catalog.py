@@ -55,6 +55,8 @@ def read_skill(name: str) -> dict:
 
 
 def _read_skill_file(name: str) -> tuple[dict, str]:
+    import re
+    if not isinstance(name, str) or not re.fullmatch(r"[a-zA-Z0-9_-]{1,80}", name): raise ValueError("技能名称无效")
     path = SKILLS_DIR / name / "SKILL.md"
     if not path.is_file():
         raise RuntimeError(

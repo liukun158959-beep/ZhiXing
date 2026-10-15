@@ -17,7 +17,18 @@ const requestId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), v
 
 export function TerminalPane(props: { info: BackendInfo | null; session: string; attachments: LocalSource[]; debug?: boolean;
   onPreview: (source: LocalSource) => void; onDraft: (text: string) => void }) {
-  const { info, session, debug, attachments } = props;
+  const { info, debug, attachments } = props;
+  const [project, setProject] = useState<{primary:string;revision:string;commands:boolean} | null>(null);
+  const session = project?.primary && project.commands ? 'project:'+project.primary : props.session;
+  const sessionRef = useRef(session); sessionRef.current = session;
+  useEffect(()=>{
+    if (!info || debug || info.scope==='collaboration') return;
+    let live=true;
+    void rpc<{workspace:{primary:string;revision:string;commands:boolean}}>(info,'project_workspace',{operation:'load'}).then(result=>{if(live) setProject(result.workspace);}).catch(()=>{});
+    const changed=(event:Event)=>setProject((event as CustomEvent).detail);
+    window.addEventListener('tebb-workspace-changed',changed);
+    return()=>{live=false;window.removeEventListener('tebb-workspace-changed',changed);};
+  },[info?.port,info?.token,debug]);
   const [status, setStatus] = useState<Status | null>(null), [distro, setDistro] = useState("Ubuntu");
   const [jobs, setJobs] = useState<TerminalJob[]>([]), [selected, setSelected] = useState("");
   const [command, setCommand] = useState(""), [cwd, setCwd] = useState("/workspace"), [limit, setLimit] = useState(60);
@@ -33,7 +44,7 @@ export function TerminalPane(props: { info: BackendInfo | null; session: string;
   }
   async function refreshJobs() {
     const value = await call<{ jobs: TerminalJob[] }>("list");
-    if (alive.current) { setJobs(value.jobs); setSelected(id => id || value.jobs.find(j => j.session === propsRef.current.session)?.id || ""); }
+    if (alive.current) { setJobs(value.jobs); setSelected(id => id || value.jobs.find(j => j.session === sessionRef.current)?.id || ""); }
     return value.jobs;
   }
   async function action(label: string, operation: () => Promise<void>) {
@@ -91,8 +102,8 @@ export function TerminalPane(props: { info: BackendInfo | null; session: string;
   async function start() {
     if (busy || !command.trim()) return;
     setBusy("正在提交命令…"); setError(""); setNotice("正在等待沙箱启动回执。"); const id = requestId();
-    try { const value = await call<{ job: TerminalJob }>("start", { command, session, cwd, timeout: limit, request_id: id }, 35000);
-      if (alive.current) { setJobs(js => [value.job, ...js.filter(j => j.id !== value.job.id)]); if (session === propsRef.current.session) setSelected(value.job.id); setNotice("命令已登记；运行后可点击终端输入。收起侧栏会继续执行。"); }
+    try { const value = await call<{ job: TerminalJob }>("start", { command, session, cwd, timeout: limit, request_id: id, ...(session.startsWith("project:") ? {workspace_revision:project?.revision} : {}) }, 35000);
+      if (alive.current) { setJobs(js => [value.job, ...js.filter(j => j.id !== value.job.id)]); if (session === sessionRef.current) setSelected(value.job.id); setNotice("命令已登记；运行后可点击终端输入。收起侧栏会继续执行。"); }
     } catch (err) { if (alive.current) {
       try { const known = (await refreshJobs()).find(j => j.request_id === id);
         if (known) { setSelected(known.id); setNotice("已找到刚才的命令记录，请查看实际状态。"); }
@@ -124,7 +135,7 @@ export function TerminalPane(props: { info: BackendInfo | null; session: string;
     <div className="terminal-job-meta" role="status">{job ? <><span>{runningJob(job) ? <LoadingText text={labels[job.state]} /> : labels[job.state]}</span><span>{job.owner === "agent" ? `Agent · ${job.task_id.slice(0, 8) || "直接调用"}` : "手动命令"}</span><span>{job.exit_code === null ? `${job.timeout} 秒上限` : `退出码 ${job.exit_code}`}</span>{runningJob(job) && <button className="desk-menu-item" disabled={!!busy || job.state === "stopping"} onClick={() => void action("正在停止命令…", async () => { await call("cancel", { job_id: job.id }); await refreshJobs(); setNotice("已请求停止，正在等待进程退出回执。"); })}>停止命令</button>}</> : "Ctrl+Enter 执行；运行后可点击终端输入。"}</div>
     <div ref={box} className="terminal-screen" data-terminal-screen />
     {job?.error && <p className="terminal-error" role="alert">{job.error}</p>}
-    <div className="terminal-actions"><button className="desk-menu-item" disabled={!job || !!busy} onClick={() => { setCommand(job!.command); setCwd(job!.cwd); setNotice("命令已放入编辑框，尚未执行。"); }}>复用命令</button><button className="desk-menu-item" disabled={!job || !!busy} onClick={() => void action("正在整理输出…", interpret)}>解读输出</button><button className="desk-menu-item" disabled={!!busy} onClick={() => void action("正在读取工作目录…", loadFiles)}>工作文件</button><button className="desk-menu-item" disabled={!!busy || !attachments.length || ownRunning} onClick={() => void action("正在复制附件到沙箱…", async () => { const value = await call<{ directory: string; files: string[] }>("import_files", { session, source_ids: attachments.map(s => s.id) }, 90000); await loadFiles(); setNotice(`已复制 ${value.files.length} 个文件到 ${value.directory}，原文件保留。`); })}>导入本轮附件</button></div>
+    <p className="terminal-notice">{session.startsWith("project:") ? `项目主目录：${project?.primary}（WSL 无网络沙箱）` : "会话隔离目录；配置工作目录与命令权限后，可直接在项目中运行。"}</p><div className="terminal-actions"><button className="desk-menu-item" disabled={!job || !!busy} onClick={() => { setCommand(job!.command); setCwd(job!.cwd); setNotice("命令已放入编辑框，尚未执行。"); }}>复用命令</button><button className="desk-menu-item" disabled={!job || !!busy} onClick={() => void action("正在整理输出…", interpret)}>解读输出</button><button className="desk-menu-item" disabled={!!busy} onClick={() => session.startsWith("project:") ? window.dispatchEvent(new CustomEvent("desk-open-preview",{detail:{kind:"project"}})) : void action("正在读取工作目录…", loadFiles)}>工作文件</button><button className="desk-menu-item" disabled={session.startsWith("project:") || !!busy || !attachments.length || ownRunning} onClick={() => void action("正在复制附件到沙箱…", async () => { const value = await call<{ directory: string; files: string[] }>("import_files", { session, source_ids: attachments.map(s => s.id) }, 90000); await loadFiles(); setNotice(`已复制 ${value.files.length} 个文件到 ${value.directory}，原文件保留。`); })}>导入本轮附件</button></div>
     {showFiles && <div className="terminal-files"><header><span>/workspace · {files.length} 个文件</span><button className="desk-menu-item" onClick={() => { setShowFiles(false); setNotice("已收起目录，文件保留。"); }}>收起目录</button></header>{!files.length && <p>工作目录为空，可执行命令生成文件或导入附件。</p>}{files.map(file => <button key={file.name} className="workspace-file-link" disabled={!!busy} title={`${file.bytes} 字节`} onClick={() => void action("正在读取结果文件…", async () => { const value = await call<{ sources: LocalSource[]; errors: { error: string }[] }>("preview_file", { session, name: file.name }, 90000); if (!value.sources?.length) throw new Error(value.errors?.[0]?.error || "文件格式暂不支持预览，可在终端读取。"); props.onPreview(value.sources[0]); })}>{file.name}</button>)}</div>}
     {error && <p className="terminal-error" role="alert">{error}</p>}<p className="terminal-notice" role="status">{busy ? <LoadingText text={busy} /> : notice || "终端与聊天可以同时使用。"}</p>
   </section>;

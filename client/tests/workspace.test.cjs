@@ -58,7 +58,7 @@ test('closing or stopping a pending preview ignores late data and never creates 
   await act(async () => button(view, '重试').props.onClick());
   await act(async () => view.root.findByProps({ 'aria-label': '关闭 技术.md' }).props.onClick());
   await act(async () => finish({ ok: true, source: { text: '关闭后的内容', chars: 6, next_offset: null } }));
-  assert.equal(view.root.findAllByType('aside').length, 0); assert.equal(view.root.findByType('textarea').props.defaultValue, '保留草稿');
+  assert.equal(view.root.findByProps({'aria-label':'侧边工作区'}).props.hidden, true); assert.equal(view.root.findByType('textarea').props.defaultValue, '保留草稿');
   await act(async () => view.unmount());
 });
 
