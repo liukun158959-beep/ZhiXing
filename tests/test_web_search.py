@@ -82,8 +82,27 @@ class SearchTests(unittest.TestCase):
         tool = [e for e in events if e.event_type == "tool_after_call"][-1]
         self.assertEqual(tool.payload["status"], "failed")
         self.assertNotIn("test-secret", tool.payload["result"]["output"])
-        self.assertEqual(self.urlopen.call_count, 2)
+        self.assertEqual(self.urlopen.call_count, 3)  # Two primary attempts, one public fallback.
         self.assertTrue(any("重试" in text for text in statuses))
+
+    def test_fallback_has_provenance_and_never_sends_model_credentials(self):
+        primary=web_search.RetryableSearchError("timeout test-secret")
+        xml=b'<rss><channel><item><title>Official</title><link>https://example.org/doc</link><description>Source</description></item></channel></rss>'
+        with patch.object(web_search,"_post",side_effect=primary):
+            self.urlopen.return_value=io.BytesIO(xml)
+            payload=web_search.search_sources(CFG['ATLAS_BASE_URL'],"test-secret","Jev official")
+        self.assertEqual(payload['provider'],'bing-rss')
+        self.assertNotIn('test-secret',str(payload))
+        request=self.urlopen.call_args.args[0]
+        self.assertEqual(request.host,'www.bing.com')
+        self.assertNotIn('Authorization',dict(request.header_items()))
+
+    def test_missing_primary_search_route_can_fallback_but_auth_cannot(self):
+        with patch.object(web_search,'_post',side_effect=web_search.SearchUnavailable('HTTP 404')), patch.object(web_search,'_bing_search',return_value=GOOD):
+            self.assertEqual(web_search.search_sources('unused','key','q')['provider'],'bing-rss')
+        with patch.object(web_search,'_post',side_effect=RuntimeError('HTTP 401')),patch.object(web_search,'_bing_search') as fallback:
+            with self.assertRaises(RuntimeError):web_search.search_sources('unused','key','q')
+            fallback.assert_not_called()
 
 
 if __name__ == "__main__":

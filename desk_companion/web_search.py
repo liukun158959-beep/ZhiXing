@@ -7,6 +7,8 @@ import ssl
 import time
 import urllib.error
 import urllib.request
+from urllib.parse import urlencode
+import xml.etree.ElementTree as ET
 
 QUERY_MAX = 200
 SOURCE_LIMIT = 5
@@ -16,6 +18,10 @@ REQUEST_BUDGET_S = 60
 
 class RetryableSearchError(RuntimeError):
     """仅用于网络或搜索服务的临时故障。"""
+
+
+class SearchUnavailable(RuntimeError):
+    """当前模型提供商没有搜索端点，可使用公开备用搜索。"""
 
 SEARCH_HINT = (
     "联网搜索走当前模型的 API。"
@@ -43,6 +49,10 @@ def format_search(payload: dict) -> str:
             raise RuntimeError(f"联网搜索失败：{message} 不要编。")
         raise RuntimeError("没有搜到结果。不要编。")
     lines = ["来源："]
+    if payload.get("provider"):
+        lines.append("搜索渠道："+str(payload["provider"]))
+    if payload.get("fallback_reason"):
+        lines.append("主搜索未完成，使用备用来源："+str(payload["fallback_reason"]))
     kept = 0
     skipped = 0
     for row in rows:
@@ -93,7 +103,7 @@ def web_search(args: dict, *, on_status=None) -> str:
 
         cfg = require_llm_env()
         endpoint = search_endpoint(cfg["ATLAS_BASE_URL"])
-        payload = _post(endpoint, cfg["ATLAS_API_KEY"], text, on_status=on_status)
+        payload = search_sources(endpoint, cfg["ATLAS_API_KEY"], text, on_status=on_status)
         return format_search(payload)
     except Exception as exc:
         message = str(exc).strip() or "联网搜索失败。"
@@ -127,14 +137,15 @@ WEB_SEARCH_SPEC = {
 }
 
 
-def _post(endpoint: str, api_key: str, query: str, *, on_status=None) -> dict:
-    deadline = time.monotonic() + REQUEST_BUDGET_S
+def _post(endpoint: str, api_key: str, query: str, *, on_status=None,
+          timeout_s=TIMEOUT_S, budget_s=REQUEST_BUDGET_S) -> dict:
+    deadline = time.monotonic() + budget_s
     for attempt in range(2):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise RuntimeError("联网搜索超时。恢复：稍后重试。")
         try:
-            return _post_once(endpoint, api_key, query, min(TIMEOUT_S, remaining))
+            return _post_once(endpoint, api_key, query, min(timeout_s, remaining))
         except RetryableSearchError:
             if attempt == 1 or deadline - time.monotonic() <= .5:
                 raise
@@ -142,6 +153,43 @@ def _post(endpoint: str, api_key: str, query: str, *, on_status=None) -> dict:
                 on_status("联网搜索遇到临时网络错误，正在重试一次。")
             time.sleep(.5)
     raise RuntimeError("联网搜索失败。")
+
+
+def search_sources(endpoint: str, api_key: str, query: str, *, on_status=None) -> dict:
+    """At most two short primary attempts, then one unauthenticated RSS fallback.
+
+    Authentication/certificate/configuration errors are never hidden by fallback.
+    No model credential, cookies or headers are sent to Bing.
+    """
+    started = time.monotonic()
+    try:
+        payload = _post(endpoint, api_key, query, on_status=on_status, timeout_s=12, budget_s=25)
+        format_search(payload)  # A 200 response alone is not evidence of success.
+        return {**payload, "provider": "model-api", "elapsed_ms": int((time.monotonic()-started)*1000)}
+    except (RetryableSearchError, SearchUnavailable) as exc:
+        reason = str(exc).replace(api_key, "[密钥已隐藏]")[:300] if api_key else str(exc)[:300]
+    if on_status:
+        on_status("主搜索暂不可用，正在使用公共 Bing 备用搜索。")
+    try:
+        payload = _bing_search(query)
+        format_search(payload)
+    except Exception:
+        raise RetryableSearchError("主搜索未完成："+reason+"；公共 Bing 备用搜索也未取得来源。") from None
+    return {**payload, "provider": "bing-rss", "fallback_reason": reason,
+            "elapsed_ms": int((time.monotonic()-started)*1000)}
+
+
+def _bing_search(query: str) -> dict:
+    request = urllib.request.Request("https://www.bing.com/search?"+urlencode({"format":"rss", "q":query}),
+        headers={"User-Agent":"tebb-research/0.2", "Accept":"application/rss+xml, application/xml, text/xml"})
+    with urllib.request.urlopen(request, timeout=10) as response:
+        raw = response.read(512001)
+        if len(raw)>512000: raise RuntimeError("备用搜索响应过大")
+    root = ET.fromstring(raw)
+    rows = [dict(title=item.findtext("title", ""), link=item.findtext("link", ""),
+                 snippet=item.findtext("description", ""), published_date=item.findtext("pubDate", ""))
+            for item in root.findall("./channel/item")[:SOURCE_LIMIT]]
+    return {"results":rows}
 
 
 def _temporary_message(message: str) -> bool:
@@ -170,12 +218,15 @@ def _post_once(endpoint: str, api_key: str, query: str, timeout: float) -> dict:
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            text = response.read().decode("utf-8")
+            raw = response.read(1000001)
+            if len(raw)>1000000: raise RuntimeError("搜索响应过大。")
+            text = raw.decode("utf-8")
     except TimeoutError as exc:
         raise RetryableSearchError("联网搜索超时。恢复：稍后重试。") from exc
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        error = RetryableSearchError if exc.code in {408, 429, 500, 502, 503, 504} else RuntimeError
+        error = (SearchUnavailable if exc.code in {404, 405, 501} else
+                 RetryableSearchError if exc.code in {408, 429, 500, 502, 503, 504} else RuntimeError)
         raise error(_http_error(exc.code, detail)) from exc
     except urllib.error.URLError as exc:
         reason = exc.reason

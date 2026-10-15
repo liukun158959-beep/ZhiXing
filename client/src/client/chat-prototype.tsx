@@ -40,7 +40,7 @@ function AgentForm({ agent, agents, onSave, onClose, real = false, models = [], 
       <label>名称<input value={form.name} maxLength={24} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
       <label>职责<textarea rows={2} value={form.role} maxLength={160} onChange={event => setForm({ ...form, role: event.target.value })} /></label>
       <label>{real ? "执行模型" : "模型标记"}{real ? <select value={form.model} onChange={event => setForm({ ...form, model: event.target.value })}><option value="">沿用当前激活模型</option>{models.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}</select> : <input value={form.model} maxLength={80} onChange={event => setForm({ ...form, model: event.target.value })} />}<small>{real ? "提交任务时确定模型，执行中的任务保持原配置。" : "用于体验配置位置，尚未绑定真实模型。"}</small></label>
-      <fieldset><legend>允许使用的工具{real ? " · 仅只读" : " · 演示配置"}</legend><div className="cp-checks">{(real ? ["联网搜索"] : ["联网搜索", "文件", "终端", "飞书"]).map(tool => <label key={tool}><input type="checkbox" checked={form.tools.includes(tool)}
+      <fieldset><legend>允许使用的工具{real ? " · 仅只读" : " · 演示配置"}</legend><div className="cp-checks">{(real ? ["联网搜索", "网页读取"] : ["联网搜索", "文件", "终端", "飞书"]).map(tool => <label key={tool}><input type="checkbox" checked={form.tools.includes(tool)}
         onChange={event => setForm({ ...form, tools: event.target.checked ? [...form.tools, tool] : form.tools.filter(item => item !== tool) })} />{tool}</label>)}</div></fieldset>
       <label>Agent 私有记忆<textarea rows={3} value={form.memory} maxLength={2000} onChange={event => setForm({ ...form, memory: event.target.value })} /><small>{real ? "仅注入该 Agent 的上下文，不自动分享给其他 Agent。" : "这段演示记忆仅在该 Agent 的设置中展示，不自动加入群消息。"}</small></label>
       {(error || actionError) && <p role="alert" className="cp-error">{error || actionError}</p>}
@@ -144,6 +144,11 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
       {!real && <div className="cp-progress" aria-label={`演示进度 ${Math.min(100, Math.round(run.step / 3 * 100))}%`}><span style={{ width: `${run.step / 3 * 100}%` }} /></div>}
       <p className="cp-task-step">{real ? run.error || (run.state === "waiting" ? "前序成果就绪后接续执行" : run.status || "等待调度") : run.state === "waiting" ? "前序成果就绪后接续执行" : run.state === "cancelled" ? "进度已保留" : run.state === "succeeded" ? "成果结构样例已就绪" : STEP_LABELS[Math.min(run.step, 2)]}</p>
       {real && <p className="cp-run-usage">{run.model} · {run.calls || 0} 次调用<br />{(run.input_tokens || run.output_tokens) ? `输入 ${run.input_tokens || 0} / 输出 ${run.output_tokens || 0} tokens` : "暂无用量回执"}</p>}
+      {real && run.citation_check && <details><summary>来源核验 · {run.citation_check.ok ? "链接匹配" : "需修订"} · 已读 {run.citation_check.pages_read} 页</summary>
+        <p className="cp-muted">仅核对来源读取记录；事实与结论仍需审阅。</p>
+        <ul>{run.citation_check.matched.map((source, index) => <li key={index}><a href={source.url} target="_blank" rel="noreferrer">{source.url}</a> · {source.level === "body" ? source.truncated ? "正文节选" : "已读正文" : "仅搜索摘要"}</li>)}</ul>
+        {!!run.citation_check.unverified.length && <p role="alert" className="cp-error">未取得的引用：{run.citation_check.unverified.join("、")}</p>}
+      </details>}
       {!!run.updates.length && <p className="cp-update-receipt">补充 {run.updates.length} 条 · 已应用 {run.applied} 条{run.applied < run.updates.length && runActive(run) ? " · 等待下一步" : ""}</p>}
       <div className="cp-task-actions">{runActive(run) ? <>{run.kind !== "chat" && <button onClick={() => supplement(run)} disabled={run.state === "cancelling"}>补充要求</button>}<button onClick={() => dispatch({ type: "cancel", id: run.id })} disabled={run.state === "cancelling"}>停止</button></> :
         run.artifact ? <button onClick={() => setArtifactId(run.id)}>查看成果 ↗</button> : <span className="cp-muted">未生成成果</span>}</div>

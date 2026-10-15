@@ -158,11 +158,11 @@ class CollaborationTests(unittest.TestCase):
                 if len(inputs) == 1:
                     return dict(message=dict(role="assistant", content="", tool_calls=[dict(id="tool-1", type="function", function=dict(name="web_search", arguments='{"query":"official source"}'))]), usage={})
                 on_delta("有出处的结论")
-                return dict(message=dict(content="有出处的结论"), usage=dict(prompt_tokens=5, completion_tokens=3))
+                return dict(message=dict(content="有出处的结论 [来源](https://example.org/docs)"), usage=dict(prompt_tokens=5, completion_tokens=3))
         execute(request, lambda kind, data: events.append((kind, data)), llm=LLM(), search=lambda query: queries.append(query) or "来源：https://example.org/docs")
         self.assertEqual(queries, ["official source"])
         self.assertIn("https://example.org/docs", json.dumps(inputs[-1]))
-        self.assertEqual(events[-1], ("result", "有出处的结论"))
+        self.assertEqual(events[-1], ("result", "有出处的结论 [来源](https://example.org/docs)"))
         self.assertEqual(sum(kind == "tool_start" for kind, _ in events), 1)
 
     def test_worker_applies_during_call_update_and_drops_old_draft(self):
@@ -192,7 +192,7 @@ class CollaborationTests(unittest.TestCase):
                 calls.append(copy.deepcopy(messages))
                 if len(calls) < 3:
                     return dict(message=dict(role="assistant",tool_calls=[dict(id="tool-"+str(len(calls)),type="function",function=dict(name="web_search",arguments=json.dumps(dict(query="query-"+str(len(calls))))))]),usage={})
-                return dict(message=dict(content="有证据的结果"),usage={})
+                return dict(message=dict(content="有证据的结果 [来源](https://example.org/verified)"),usage={})
         def search(query):
             searches.append(query)
             if len(searches)==1: raise RuntimeError("没有结果 fixture-key")
@@ -200,7 +200,7 @@ class CollaborationTests(unittest.TestCase):
         execute(request,lambda kind,data:events.append((kind,data)),llm=LLM(),search=search)
         self.assertEqual(len(searches),2);self.assertNotIn("fixture-key",json.dumps(events))
         self.assertTrue(any(kind=="evidence" and "verified" in data["text"] for kind,data in events))
-        self.assertEqual(events[-1],("result","有证据的结果"))
+        self.assertEqual(events[-1],("result","有证据的结果 [来源](https://example.org/verified)"))
 
     def test_no_successful_search_never_delivers_an_unverified_report(self):
         from desk_companion.collaboration_worker import PublicFailure
@@ -213,6 +213,70 @@ class CollaborationTests(unittest.TestCase):
         def search(_): raise RuntimeError("没有结果 fixture-key")
         with self.assertRaises(PublicFailure) as error: execute(request,lambda kind,data:events.append((kind,data)),llm=LLM(),search=search)
         self.assertNotIn("fixture-key",str(error.exception));self.assertFalse(any(kind=="result" for kind,_ in events))
+
+    def test_search_fetch_and_citation_provenance_use_actual_body(self):
+        request=self.request();events=[];calls=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(copy.deepcopy(messages))
+                name='web_search' if len(calls)==1 else 'web_fetch'
+                if len(calls)<3:
+                    args={'query':'official'} if name=='web_search' else {'url':'https://example.org/doc'}
+                    return dict(message=dict(role='assistant',tool_calls=[dict(id=str(len(calls)),function=dict(name=name,arguments=json.dumps(args)))]),usage={})
+                return dict(message=dict(content='结论 [正文](https://example.org/doc)'),usage={})
+        page=dict(kind='page',level='body',url='https://example.org/doc',text='BODY_SENTINEL',truncated=False)
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM(),search=lambda q:dict(results=[dict(title='Official',link=page['url'],snippet='Summary')]),fetch=lambda u:page)
+        self.assertIn('BODY_SENTINEL',json.dumps(calls[-1]));audit=next(d for k,d in events if k=='citation_check')
+        self.assertTrue(audit['ok']);self.assertEqual(audit['pages_read'],1)
+        self.assertEqual(audit['matched'][0]['level'],'body')
+
+    def test_writer_receives_body_evidence_and_repairs_unretrieved_citation(self):
+        request=self.request(role=dict(id='writer',name='写作者',role='写报告',tools=[]))
+        request['source_evidence']=[dict(kind='page',level='body',url='https://example.org/real',text='BODY_FOR_WRITER',truncated=False)]
+        calls=[];events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(copy.deepcopy(messages))
+                return dict(message=dict(content='[source](https://example.org/'+('fake' if len(calls)==1 else 'real')+')'),usage={})
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(len(calls),2);self.assertIn('BODY_FOR_WRITER',json.dumps(calls[0]))
+        self.assertIn(('answer_reset',True),events)
+        self.assertEqual([d['ok'] for k,d in events if k=='citation_check'],[False,True])
+
+    def test_fetch_permission_and_known_url_are_enforced_and_no_fake_evidence(self):
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                return dict(message=dict(role='assistant',tool_calls=[dict(id='fetch',function=dict(name='web_fetch',arguments='{"url":"https://example.org/not-discovered"}'))]),usage={})
+        events=[];request=self.request(role=dict(name='writer',role='写作',tools=[]))
+        with self.assertRaises(ValueError):execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertFalse(any(k=='tool_start' for k,d in events))
+        events=[];request=self.request()
+        with patch('desk_companion.web_sources.fetch_page') as fetch:
+            with self.assertRaises(ValueError):execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+            fetch.assert_not_called()
+        self.assertFalse(any(k=='evidence' for k,d in events))
+
+    def test_repeated_invented_citations_fail_without_handoff(self):
+        from desk_companion.collaboration_worker import PublicFailure
+        request=self.request();request['source_evidence']=[dict(kind='page',level='body',url='https://example.org/real',text='Real')]
+        events=[];calls=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(True)
+                return dict(message=dict(content='[fake](https://example.org/fabricated)'),usage={})
+        with self.assertRaises(PublicFailure):execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(len(calls),2);self.assertFalse(any(k=='result' for k,d in events))
+
+    def test_own_source_evidence_is_carried_into_bounded_revision(self):
+        self.action(type='send',text='研究任务',target='research',mode='task');self.service.tick()
+        run=self.state()['runs'][0];task='collab:'+run['id']+':0'
+        page=dict(kind='page',url='https://example.org/body',level='body',text='PERSISTED_BODY')
+        self.work.complete(task,'旧稿',evidence=page)
+        self.work.items[task]['events'].extend([dict(seq=5,kind='tool_start',data={'tool':'web_search'}),dict(seq=6,kind='tool_start',data={'tool':'web_fetch'})])
+        self.action(type='send',text='修订',run=run['id'],mode='task');self.service.tick();self.service.tick()
+        req=self.work.requests['collab:'+run['id']+':1']
+        self.assertEqual(req['search_budget'],1);self.assertEqual(req['fetch_budget'],3)
+        self.assertIn('PERSISTED_BODY',json.dumps(req))
 
 
 class PreviewAccessTests(unittest.TestCase):

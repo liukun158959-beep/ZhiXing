@@ -69,9 +69,11 @@ test('real workspace renders actual output and sends actions without changing de
   env();global.localStorage={getItem(){throw new Error('real mode must not read demo storage');},setItem(){throw new Error('real mode must not write demo storage');}};
   const { initialDemo }=load('chat-prototype-state');const state=initialDemo();
   state.runs=[{...state.runs[0],state:'queued',kind:'task',model:'actual-model',calls:1,input_tokens:10,output_tokens:5}];state.messages=[];
+  state.runs[0].citation_check={ok:true,pages_read:1,matched:[{url:'https://example.org/body',level:'body',truncated:true},{url:'https://example.org/summary',level:'snippet',truncated:false}],unverified:[]};
   const actions=[];const {ChatPrototype}=load('chat-prototype',{'./startup':{startupReady(){}}});let view;
   await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state,busy:false,error:'',act:async action=>{actions.push(action);return true;}}}));});
   assert(strings(view.toJSON()).includes('真实协作验证'));assert(!strings(view.toJSON()).includes('推进一步'));
+  assert(strings(view.toJSON()).includes('正文节选'));assert(strings(view.toJSON()).includes('仅搜索摘要'));assert(strings(view.toJSON()).includes('事实与结论仍需审阅'));
   await act(async()=>view.root.findByProps({'aria-label':'协作消息'}).props.onChange({target:{value:'真实提问'}}));
   await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
   assert.equal(actions[0].text,'真实提问');assert.equal(actions[0].mode,'message');
