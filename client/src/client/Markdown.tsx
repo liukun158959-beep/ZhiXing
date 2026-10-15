@@ -176,12 +176,15 @@ export function PlainLinks(props: { text: string }) {
   return <>{nodes}</>;
 }
 
-export function Markdown(props: { text: string; cites?: number[]; onCite?: (n: number) => void }) {
+export function Markdown(props: { text: string; cites?: number[]; onCite?: (n: number) => void; externalLinks?: boolean }) {
   const opened = loosenQuotedEmphasis(props.text);
   const text = props.onCite ? withCiteLinks(opened, props.cites || []) : opened;
   const view: Components = props.onCite
     ? { a: (link) => <CiteLink href={link.href} onCite={props.onCite as (n: number) => void}>{link.children}</CiteLink> }
-    : components;
+    : props.externalLinks ? { a: ({ href, children }) => {
+      const safe = openableHref(href);
+      return safe ? <a href={safe} target="_blank" rel="noopener noreferrer">{children}</a> : <span>{children}</span>;
+    } } : components;
   return (
     <div className="md" data-md="">
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={view}>

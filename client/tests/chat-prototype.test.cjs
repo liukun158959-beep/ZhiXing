@@ -6,6 +6,11 @@ const Module = require('node:module');
 const ts = require('typescript');
 const React = require('react');
 const { create, act } = require('react-test-renderer');
+const markdownModules = {};
+test.before(async () => {
+  markdownModules['react-markdown'] = await import('react-markdown');
+  markdownModules['remark-gfm'] = await import('remark-gfm');
+});
 
 function load(name) {
   const base = path.resolve(__dirname, '../src/client', name);
@@ -14,7 +19,7 @@ function load(name) {
     module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
   const mod = new Module(filename, module); mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
   const original = mod.require.bind(mod);
-  mod.require = id => id.endsWith('.css') ? {} : id === './startup' ? { startupReady() {} } : id.startsWith('./') ? load(id.slice(2)) : original(id);
+  mod.require = id => markdownModules[id] || (id.endsWith('.css') ? {} : id === './startup' ? { startupReady() {} } : id.startsWith('./') ? load(id.slice(2)) : original(id));
   mod._compile(compiled, filename); return mod.exports;
 }
 const { initialDemo, demoReducer: reduce, restoreDemo, DEMO_STORAGE } = load('chat-prototype-state');
@@ -105,11 +110,12 @@ test('UI sends while running, preserves per-conversation drafts and targets supp
   await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
   assert(text(view.toJSON()).includes('当前有 2 项后台任务'));
   await act(async () => composer().props.onChange({ target: { value: '群草稿' } }));
-  const dm = () => view.root.findAllByType('button').find(node => node.props.className?.includes('cp-conversation') && text(node).startsWith('R研究员'));
+  const dm = () => view.root.findAllByType('button').find(node => node.props.className?.includes('cp-conversation') && node.props['data-companion'] === 'research');
   await act(async () => dm().props.onClick()); assert.equal(composer().props.value, '');
   await act(async () => composer().props.onChange({ target: { value: '私聊草稿' } }));
   const group = () => view.root.findAllByType('button').find(node => node.props.className?.includes('cp-conversation') && text(node).includes('AI 研究室'));
   await act(async () => group().props.onClick()); assert.equal(composer().props.value, '群草稿');
+  await act(async () => button(view, '当前任务').props.onClick());
   const run = view.root.findByProps({ 'data-demo-run': 'r1' });
   await act(async () => run.findAllByType('button').find(node => text(node) === '补充要求').props.onClick());
   await act(async () => composer().props.onChange({ target: { value: '优先关注部署成本' } }));
@@ -191,4 +197,181 @@ test('standalone preview loads no real App; normal startup still loads the real 
     if (preview) assert.equal(receivedProps.standalone, true);
     await act(async () => view.unmount());
   }
+});
+
+
+const contextEvent = (rest = {}) => ({ preventDefault() {}, currentTarget: { getBoundingClientRect: () => ({ right: 200, top: 100 }), focus() {} }, clientX: 120, clientY: 100, ...rest });
+
+test('normal context menu manages conversations; private memory appears only in developer mode', async () => {
+  const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
+  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  const dm = () => view.root.findByProps({ 'data-companion': 'research' });
+  await act(async () => dm().props.onContextMenu(contextEvent()));
+  assert(button(view, '删除对话')); assert(!button(view, '调试伙伴记忆'));
+  await act(async () => view.root.findByProps({ role: 'menu' }).props.onKeyDown({ key: 'Escape', preventDefault() {} }));
+  assert.equal(view.root.findAllByProps({ role: 'menu' }).length, 0);
+  await act(async () => button(view, '开发者模式').props.onClick());
+  assert.equal(saved.get('tebb.developer-mode'), 'true');
+  await act(async () => dm().props.onContextMenu(contextEvent()));
+  await act(async () => button(view, '调试伙伴记忆').props.onClick());
+  let modal = view.root.findByProps({ role: 'dialog' });
+  assert(text(modal).includes('伙伴私有记忆'));
+  await act(async () => modal.findByType('textarea').props.onChange({ target: { value: '只给阿探的偏好' } }));
+  await act(async () => modal.findByType('form').props.onSubmit({ preventDefault() {} }));
+  const state = JSON.parse(saved.get(DEMO_STORAGE));
+  assert.equal(state.agents[1].memory, '只给阿探的偏好');
+  assert(!JSON.stringify(state.messages).includes('只给阿探的偏好'));
+  await act(async () => button(view, '关闭开发者模式').props.onClick());
+  await act(async () => dm().props.onKeyDown(contextEvent({ key: 'F10', shiftKey: true })));
+  assert(!button(view, '调试伙伴记忆'));
+  await act(async () => view.root.findByProps({ className: 'cp-menu-dismiss' }).props.onMouseDown());
+  assert.equal(view.root.findAllByProps({ role: 'menu' }).length, 0);
+  await act(async () => view.unmount());
+});
+
+test('delete inactive DM removes history, preserves companions and opens a fresh conversation', async () => {
+  const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
+  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  let dm = view.root.findByProps({ 'data-companion': 'writer' });
+  await act(async () => dm.props.onClick());
+  await act(async () => view.root.findByProps({ 'aria-label': '原型消息' }).props.onChange({ target: { value: '待删除消息' } }));
+  await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  await act(async () => dm.props.onContextMenu(contextEvent()));
+  await act(async () => button(view, '删除对话').props.onClick());
+  await act(async () => button(view, '确认删除').props.onClick());
+  let state = JSON.parse(saved.get(DEMO_STORAGE));
+  assert(!state.messages.some(m => m.text === '待删除消息'));
+  assert.equal(state.agents.length, 3);
+  await act(async () => view.root.findByProps({ 'data-companion': 'writer' }).props.onClick());
+  state = JSON.parse(saved.get(DEMO_STORAGE));
+  assert.notEqual(state.selected, 'dm-writer');
+  assert.equal(view.root.findByType('h1').children[0], '墨墨');
+  await act(async () => view.unmount());
+});
+
+test('active conversation deletion is disabled and normal companion settings hide memory', async () => {
+  environment(); const { ChatPrototype } = load('chat-prototype'); let view;
+  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  const group = view.root.findAllByType('button').find(b => b.props.className?.includes('cp-conversation') && text(b).includes('AI 研究室'));
+  await act(async () => group.props.onContextMenu(contextEvent()));
+  await act(async () => button(view, '删除对话').props.onClick());
+  assert.equal(button(view, '确认删除').props.disabled, true);
+  await act(async () => button(view, '取消').props.onClick());
+  await act(async () => button(view, '创建 Agent').props.onClick());
+  const modal = view.root.findByProps({ role: 'dialog' });
+  assert(!text(modal).includes('Agent 私有记忆'));
+  assert.equal(modal.findAllByType('svg').length, 4);
+  await act(async () => view.unmount());
+});
+
+test('Markdown formats messages, tables, fenced code and artifacts, and rejects executable links and HTML', async () => {
+  environment(); const { ChatPrototype } = load('chat-prototype'); let state = initialDemo();
+  const md = '# 标题\n\n**重点**\n\n| 项目 | 结果 |\n| --- | --- |\n| A | B |\n\n```js\nconst a = 1;\n```\n\n[来源](https://example.org) [危险](javascript:alert%281%29)\n\n<script>alert(1)</script>';
+  state.messages = [{ id: 'md1', conversation: state.selected, sender: 'writer', text: md, kind: 'result', run: 'r1' }];
+  state.runs[0].state = 'succeeded';
+  state.runs[0].artifact = md;
+  let view; await act(async () => { view = create(React.createElement(ChatPrototype, { standalone: true, live: { state, busy: false, error: '', act: async () => true } })); });
+  assert.equal(view.root.findAllByType('table').length, 1);
+  assert(view.root.findAllByType('strong').some(n => text(n) === '重点'));
+  assert(view.root.findAllByType('code').some(n => text(n).includes('const a = 1;')));
+  assert.equal(view.root.findAllByType('script').length, 0);
+  assert(!view.root.findAllByType('a').some(n => /^javascript:/i.test(n.props.href || '')));
+  const link = view.root.findAllByType('a').find(n => n.props.href === 'https://example.org/');
+  assert.equal(link.props.target, '_blank');
+  await act(async () => button(view, '当前任务').props.onClick());
+  assert(view.root.findByProps({ 'data-demo-run': 'r1' }));
+  await act(async () => view.root.findByProps({ className: 'cp-artifact-link' }).props.onClick());
+  const artifact = view.root.findByProps({ role: 'dialog' });
+  assert.equal(artifact.findAllByType('table').length, 1);
+  assert.equal(artifact.findAllByType('script').length, 0);
+  assert(artifact.findAllByType('code').some(n => text(n).includes('const a = 1;')));
+  await act(async () => view.unmount());
+});
+
+test('Markdown preview never submits, formatting preserves drafts, and an inserted source stays in this conversation', async () => {
+  const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
+  await act(async () => { view = create(React.createElement(ChatPrototype)); });
+  const composer = () => view.root.findByProps({ 'aria-label': '原型消息' });
+  const before = JSON.parse(saved.get(DEMO_STORAGE)).messages.length;
+  await act(async () => composer().props.onChange({ target: { value: '**草稿重点**' } }));
+  await act(async () => button(view, '预览 Markdown').props.onClick());
+  assert.equal(composer().props.hidden, true);
+  assert(view.root.findByProps({ 'aria-label': 'Markdown 草稿预览' }).findByType('strong'));
+  assert.equal(JSON.parse(saved.get(DEMO_STORAGE)).messages.length, before);
+  await act(async () => button(view, '继续编辑').props.onClick());
+  assert.equal(composer().props.value, '**草稿重点**');
+  await act(async () => button(view, '插入代码').props.onClick());
+  assert(composer().props.value.includes('`文字`'));
+  await act(async () => view.update(React.createElement(ChatPrototype, { composeRequest: { id: 1, text: 'https://example.org/source' } })));
+  assert(composer().props.value.endsWith('https://example.org/source'));
+  assert.equal(JSON.parse(saved.get(DEMO_STORAGE)).messages.length, before);
+  await act(async () => view.unmount());
+});
+
+test('restoring legacy companion names keeps custom names, model, permissions and private preferences', () => {
+  const state = initialDemo(); delete state.companionVersion;
+  state.agents[0].name = 'tebb'; state.agents[1].name = '我自己的伙伴'; state.agents[1].memory = '私有偏好';
+  state.agents[2].name = '写作者'; delete state.agents[2].avatar;
+  const next = restoreDemo(JSON.stringify(state));
+  assert.deepEqual(next.agents.map(a => a.name), ['小缇', '我自己的伙伴', '墨墨']);
+  assert.equal(next.agents[1].memory, '私有偏好');
+  assert.equal(next.agents[2].avatar, 'cat');
+  next.agents[2].name = '写作者';
+  assert.equal(restoreDemo(JSON.stringify(next)).agents[2].name, '写作者');
+});
+
+
+test('normal App starts in core chat and keeps its draft mounted across settings and source previews', async () => {
+  environment(); global.window.addEventListener = () => {}; global.window.removeEventListener = () => {};
+  let sideProps, liveProps, mounts = 0, unmounts = 0;
+  const Empty = () => null;
+  function LiveStub(props) {
+    liveProps = props;
+    const [value, setValue] = React.useState('');
+    React.useEffect(() => { mounts++; return () => unmounts++; }, []);
+    return React.createElement('div', null, React.createElement('input', { 'data-core-draft': true, value, onChange: e => setValue(e.target.value) }), props.navigation);
+  }
+  const defaultModule = new Proxy({}, { get(_o, key) { return key === '__esModule' ? true : Empty; } });
+  const modules = {
+    './companion-ui': load('companion-ui'),
+    './live-collaboration': { LiveCollaboration: LiveStub },
+    './debug': { debugPane: () => null, debugRequested: () => false, installDeskDebug() {} },
+    './settings': { readStoredBackground: () => ({ url: '', error: '' }), SettingsPane: Empty },
+    './release': { useReleaseIntro: () => ({ open: false }), ReleaseSettings: Empty },
+    './memory': { splitIndex: () => -1, modelVerbatim: () => [], MemoryPane: Empty },
+    './sampling': { DEFAULT_SAMPLING: { effort: '', temperature: 1, top_p: 1 } },
+    './slash-menu': { slashQuery: () => null, filterSlash: items => items, SLASH_PARENTS: [], NEED_REPO: new Set() },
+    './api': { backendInfo: () => new Promise(() => {}) },
+    './side-workspace': { SideWorkspace: props => { sideProps = props; return React.createElement('div', null, props.children); } },
+    './startup': { startupStatus() {}, startupReady() {}, startupFailed() {} },
+    'reend-components': { Button: props => React.createElement('button', props), GlitchText: props => React.createElement('span', null, props.children) },
+    'framer-motion': { AnimatePresence: props => props.children, motion: { section: props => React.createElement('section', null, props.children) } },
+    '@tauri-apps/api/core': { isTauri: () => false },
+    '@tauri-apps/api/event': {},
+  };
+  const filename = path.resolve(__dirname, '../src/client/App.tsx');
+  const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const mod = new Module(filename, module); mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
+  const original = mod.require.bind(mod); mod.require = id => modules[id] || (id.endsWith('.css') ? {} : id.startsWith('./') ? defaultModule : original(id));
+  mod._compile(compiled, filename); let view;
+  await act(async () => { view = create(React.createElement(mod.exports.App)); });
+  const root = () => view.root.findAllByType('div').find(n => n.props['data-pane']);
+  assert.equal(root().props['data-pane'], 'collaboration'); assert.equal(mounts, 1);
+  const draft = () => view.root.findByProps({ 'data-core-draft': true });
+  await act(async () => draft().props.onChange({ target: { value: '跨页保留的草稿' } }));
+  await act(async () => sideProps.onRequest());
+  assert.equal(root().props['data-pane'], 'collaboration');
+  await act(async () => sideProps.onLink('https://example.org/source'));
+  assert.equal(liveProps.composeRequest.text, 'https://example.org/source');
+  await act(async () => sideProps.onTerminalDraft('可引用的终端输出'));
+  assert.equal(liveProps.composeRequest.text, '可引用的终端输出');
+  assert.equal(root().props['data-pane'], 'collaboration');
+  await act(async () => button(view, '设置').props.onClick());
+  assert.equal(root().props['data-pane'], 'settings');
+  assert.equal(draft().props.value, '跨页保留的草稿'); assert.equal(unmounts, 0);
+  const rail = view.root.findAllByType('nav').find(n => n.props.className?.includes('tebb-app-rail'));
+  await act(async () => rail.findAllByType('button').find(n => n.props['aria-label'] === '伙伴聊天').props.onClick());
+  assert.equal(root().props['data-pane'], 'collaboration'); assert.equal(draft().props.value, '跨页保留的草稿');
+  assert.equal(mounts, 1);
+  await act(async () => view.unmount()); assert.equal(unmounts, 1);
 });

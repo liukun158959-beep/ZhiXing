@@ -1,5 +1,5 @@
 // Local interaction model only. No model, tool, credential, or backend imports.
-export type DemoAgent = { id: string; name: string; role: string; mark: string; tone: string; model: string; tools: string[]; memory: string };
+export type DemoAgent = { id: string; name: string; role: string; mark: string; tone: string; model: string; tools: string[]; memory: string; avatar?: string; personality?: string };
 export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string };
 export type DemoMessage = { id: string; conversation: string; sender: string; text: string; run?: string; kind?: "result" | "notice" };
 export type DemoRun = { id: string; conversation: string; agent: string; title: string; state: "running" | "waiting" | "succeeded" | "cancelled" | "pending" | "queued" | "cancelling" | "failed" | "timed_out" | "interrupted";
@@ -8,10 +8,13 @@ export type DemoRun = { id: string; conversation: string; agent: string; title: 
   citation_check?: { ok: boolean; pages_read: number; matched: { url: string; level: string; truncated: boolean }[]; unverified: string[] } };
 export type DemoRequest = { id: string; conversation: string; run: string; state: "pending" | "approved" | "rejected" };
 export type DemoState = { version: 1; next: number; selected: string; agents: DemoAgent[]; conversations: DemoConversation[]; messages: DemoMessage[];
-  runs: DemoRun[]; requests: DemoRequest[]; notice: string; revision?: number; models?: { id: string; model: string }[] };
+  runs: DemoRun[]; requests: DemoRequest[]; notice: string; companionVersion?: number; revision?: number; models?: { id: string; model: string }[] };
 export type DemoAction =
   | { type: "select"; id: string }
   | { type: "send"; text: string; target: string; mode: "message" | "task"; run?: string }
+  | { type: "open_dm"; agent_id: string }
+  | { type: "delete_conversation"; id: string }
+  | { type: "rename_conversation"; id: string; title: string }
   | { type: "advance" }
   | { type: "cancel"; id: string }
   | { type: "group"; title: string; members: string[]; goal: string }
@@ -27,24 +30,24 @@ export const STEP_LABELS = ["整理任务与资料范围", "核对资料并提�
 
 export function initialDemo(): DemoState {
   return {
-    version: 1, next: 20, selected: "group-research", notice: "", requests: [],
+    version: 1, companionVersion: 1, next: 20, selected: "group-research", notice: "", requests: [],
     agents: [
-      { id: "tebb", name: "tebb", role: "协调目标、拆分工作、汇总成果", mark: "t", tone: "gold", model: "通用模型 · 演示", tools: ["文件"], memory: "演示偏好：先交付结论，再展开依据。" },
-      { id: "research", name: "研究员", role: "查找一手来源，比较技术方案", mark: "R", tone: "sage", model: "研究模型 · 演示", tools: ["联网搜索", "文件"], memory: "演示偏好：比较项目时列出许可证和部署门槛。" },
-      { id: "writer", name: "写作者", role: "整理结构，将资料写成可交付文档", mark: "W", tone: "lavender", model: "写作模型 · 演示", tools: ["文件", "飞书"], memory: "演示偏好：英文技术名词旁保留中文解释。" },
+      { id: "tebb", name: "小缇", avatar: "spark", personality: "温暖爽快，擅长把想法变成计划。", role: "协调目标、拆分工作、汇总成果", mark: "t", tone: "gold", model: "通用模型 · 演示", tools: ["文件"], memory: "演示偏好：先交付结论，再展开依据。" },
+      { id: "research", name: "阿探", avatar: "fox", personality: "好奇又敏锐，追问为什么，也坦率承认未知。", role: "查找一手来源，比较技术方案", mark: "R", tone: "sage", model: "研究模型 · 演示", tools: ["联网搜索", "文件"], memory: "演示偏好：比较项目时列出许可证和部署门槛。" },
+      { id: "writer", name: "墨墨", avatar: "cat", personality: "细腻有条理，喜欢把复杂的事讲清楚，有一点冷幽默。", role: "整理结构，将资料写成可交付文档", mark: "W", tone: "lavender", model: "写作模型 · 演示", tools: ["文件", "飞书"], memory: "演示偏好：英文技术名词旁保留中文解释。" },
     ],
     conversations: [
       { id: "group-research", title: "AI 研究室", kind: "group", members: ["tebb", "research", "writer"], coordinator: "tebb", goal: "一起研究开源 Agent，把结论整理成有依据的报告。" },
-      ...["tebb", "research", "writer"].map(id => ({ id: `dm-${id}`, title: id === "tebb" ? "tebb" : id === "research" ? "研究员" : "写作者", kind: "dm" as const, members: [id], coordinator: id, goal: "独立会话，记忆按 Agent 展示。" })),
+      ...["tebb", "research", "writer"].map(id => ({ id: `dm-${id}`, title: id === "tebb" ? "小缇" : id === "research" ? "阿探" : "墨墨", kind: "dm" as const, members: [id], coordinator: id, goal: "独立会话，记忆按 Agent 展示。" })),
     ],
     messages: [
-      { id: "m1", conversation: "group-research", sender: "notice", text: "你创建了 AI 研究室，邀请 tebb、研究员和写作者加入。所有内容均为本地演示。", kind: "notice" },
+      { id: "m1", conversation: "group-research", sender: "notice", text: "你创建了 AI 研究室，邀请小缇、阿探和墨墨加入。所有内容均为本地演示。", kind: "notice" },
       { id: "m2", conversation: "group-research", sender: "user", text: "比较三个开源 Agent 项目，帮我看看哪个更适合自部署。", run: "r1" },
-      { id: "m3", conversation: "group-research", sender: "tebb", text: "我来协调。研究员先整理比较依据，写作者收到资料后生成报告。你可以继续聊天，也可以给任务补充要求。", run: "r1" },
+      { id: "m3", conversation: "group-research", sender: "tebb", text: "我来协调。阿探先整理比较依据，墨墨收到资料后生成报告。你可以继续聊天，也可以给任务补充要求。", run: "r1" },
     ],
     runs: [
-      { id: "r1", conversation: "group-research", agent: "research", title: "比较开源 Agent 的自部署方案", state: "running", step: 0, updates: [], applied: 0, events: ["tebb → 研究员：整理项目比较依据（模拟委派）"] },
-      { id: "r2", conversation: "group-research", agent: "writer", title: "整理自部署比较报告", state: "waiting", step: 0, dependency: "r1", updates: [], applied: 0, events: ["tebb → 写作者：等待研究成果后成文（模拟委派）"] },
+      { id: "r1", conversation: "group-research", agent: "research", title: "比较开源 Agent 的自部署方案", state: "running", step: 0, updates: [], applied: 0, events: ["小缇 → 阿探：整理项目比较依据（模拟委派）"] },
+      { id: "r2", conversation: "group-research", agent: "writer", title: "整理自部署比较报告", state: "waiting", step: 0, dependency: "r1", updates: [], applied: 0, events: ["小缇 → 墨墨：等待研究成果后成文（模拟委派）"] },
     ],
   };
 }
@@ -67,6 +70,25 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
   const conversation = state.conversations.find(item => item.id === state.selected)!;
   if (action.type === "select") {
     if (state.conversations.some(item => item.id === action.id)) state.selected = action.id;
+  } else if (action.type === "open_dm") {
+    const agent = state.agents.find(a => a.id === action.agent_id);
+    if (!agent) return previous;
+    let dm = state.conversations.find(c => c.kind === "dm" && c.coordinator === agent.id);
+    if (!dm) { dm = { id: id(), title: agent.name, kind: "dm", members: [agent.id], coordinator: agent.id, goal: "" }; state.conversations.push(dm); }
+    state.selected = dm.id;
+  } else if (action.type === "rename_conversation") {
+    const row = state.conversations.find(c => c.id === action.id && c.kind === "group");
+    if (row && action.title.trim()) row.title = action.title.trim().slice(0, 40);
+  } else if (action.type === "delete_conversation") {
+    if (state.runs.some(r => r.conversation === action.id && runActive(r))) { state.notice = "此会话仍有任务执行中，请先停止任务并等待结束后删除"; return state; }
+    state.conversations = state.conversations.filter(c => c.id !== action.id);
+    state.messages = state.messages.filter(m => m.conversation !== action.id);
+    state.runs = state.runs.filter(r => r.conversation !== action.id);
+    state.requests = state.requests.filter(r => r.conversation !== action.id);
+    if (!state.conversations.length) {
+      const a = state.agents[0]; state.conversations.push({ id: id(), title: a.name, kind: "dm", members: [a.id], coordinator: a.id, goal: "" });
+    }
+    if (state.selected === action.id) state.selected = state.conversations[0].id;
   } else if (action.type === "send") {
     const text = action.text.trim().slice(0, 4000);
     if (!text) return previous;
@@ -193,6 +215,20 @@ export function restoreDemo(raw: string | null): DemoState {
     if (!Array.isArray(state.messages) || !state.messages.every((m: DemoMessage) => m && typeof m.id === "string" && conversations.has(m.conversation) &&
       typeof m.text === "string" && (agents.has(m.sender) || ["notice", "user"].includes(m.sender)) && (!m.run || runs.has(m.run)))) throw new Error();
     if (!Array.isArray(state.requests) || !state.requests.every((r: DemoRequest) => r && typeof r.id === "string" && conversations.has(r.conversation) && runs.has(r.run) && ["pending", "approved", "rejected"].includes(r.state))) throw new Error();
+    if (state.companionVersion !== 1) {
+      const defaults = initialDemo().agents;
+      const legacy: Record<string, string> = { tebb: "tebb", research: "研究员", writer: "写作者" };
+      for (const agent of state.agents as DemoAgent[]) {
+        const template = defaults.find(a => a.id === agent.id);
+        agent.avatar ??= template?.avatar || "owl";
+        agent.personality ??= template?.personality || "";
+        if (template && agent.name === legacy[agent.id] && !state.agents.some((a: DemoAgent) => a.id !== agent.id && a.name === template.name)) {
+          agent.name = template.name;
+          for (const c of state.conversations as DemoConversation[]) if (c.kind === "dm" && c.coordinator === agent.id) c.title = agent.name;
+        }
+      }
+      state.companionVersion = 1;
+    }
     return { ...state, notice: "" };
   } catch { return initialDemo(); }
 }

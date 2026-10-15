@@ -4,9 +4,8 @@ import { DEMO_STORAGE, RUN_LABELS, STEP_LABELS, demoReducer, initialDemo, restor
 import { startupReady } from "./startup";
 import "./chat-prototype.css";
 
-function Avatar({ agent, group = false }: { agent?: DemoAgent; group?: boolean }) {
-  return <span className={`cp-avatar ${group ? "cp-group-avatar" : `cp-${agent?.tone || "gold"}`}`} aria-hidden="true">{group ? "#" : agent?.mark || "t"}</span>;
-}
+import { Markdown } from "./Markdown";
+import { CompanionAvatar as Avatar, RailButton, AVATAR_NAMES, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
@@ -23,11 +22,11 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       const first = items[0], last = items[items.length - 1];
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
-    }}><header><div><span className="cp-eyebrow">TEBB / LOCAL PREVIEW</span><h2>{title}</h2></div><button className="cp-icon-button" onClick={onClose} aria-label="关闭弹窗">×</button></header>{children}</div>
+    }}><header><div><span className="cp-eyebrow">TEBB / YOUR AGENT CIRCLE</span><h2>{title}</h2></div><button className="cp-icon-button" onClick={onClose} aria-label="关闭弹窗">×</button></header>{children}</div>
   </div>;
 }
 
-function AgentForm({ agent, agents, onSave, onClose, real = false, models = [], actionError = "", busy = false }: { agent: DemoAgent; agents: DemoAgent[]; onSave: (agent: DemoAgent) => void; onClose: () => void; real?: boolean; models?: { id: string; model: string }[]; actionError?: string; busy?: boolean }) {
+function AgentForm({ agent, agents, onSave, onClose, real = false, models = [], actionError = "", busy = false, developer = false }: { agent: DemoAgent; agents: DemoAgent[]; onSave: (agent: DemoAgent) => void; onClose: () => void; real?: boolean; models?: { id: string; model: string }[]; actionError?: string; busy?: boolean; developer?: boolean }) {
   const [form, setForm] = useState(agent);
   const [error, setError] = useState("");
   return <Modal title={agent.id ? `${agent.name} 的设置` : "创建 Agent"} onClose={onClose}>
@@ -38,11 +37,13 @@ function AgentForm({ agent, agents, onSave, onClose, real = false, models = [], 
     }}>
       <p className="cp-muted">{real ? "配置将用于之后的真实任务。此处不填写密钥；模型沿用设置页已有条目。" : "配置仅用于原型演示。请勿填写密钥或真实隐私信息。"}</p>
       <label>名称<input value={form.name} maxLength={24} onChange={event => setForm({ ...form, name: event.target.value })} /></label>
-      <label>职责<textarea rows={2} value={form.role} maxLength={160} onChange={event => setForm({ ...form, role: event.target.value })} /></label>
+      <fieldset><legend>伙伴头像</legend><div className="cp-avatar-picker">{Object.entries(AVATAR_NAMES).map(([key, name]) => <button type="button" key={key} aria-label={name} aria-pressed={form.avatar === key} onClick={() => setForm({ ...form, avatar: key })}><Avatar agent={{ ...form, avatar: key }} /></button>)}</div></fieldset>
+      <label>性格与说话方式<textarea rows={2} value={form.personality || ""} maxLength={160} placeholder="好奇、温柔，还是有点冷幽默？" onChange={event => setForm({ ...form, personality: event.target.value })} /></label>
+      <label>擅长的事<textarea rows={2} value={form.role} maxLength={160} onChange={event => setForm({ ...form, role: event.target.value })} /></label>
       <label>{real ? "执行模型" : "模型标记"}{real ? <select value={form.model} onChange={event => setForm({ ...form, model: event.target.value })}><option value="">沿用当前激活模型</option>{models.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}</select> : <input value={form.model} maxLength={80} onChange={event => setForm({ ...form, model: event.target.value })} />}<small>{real ? "提交任务时确定模型，执行中的任务保持原配置。" : "用于体验配置位置，尚未绑定真实模型。"}</small></label>
       <fieldset><legend>允许使用的工具{real ? " · 仅只读" : " · 演示配置"}</legend><div className="cp-checks">{(real ? ["联网搜索", "网页读取"] : ["联网搜索", "文件", "终端", "飞书"]).map(tool => <label key={tool}><input type="checkbox" checked={form.tools.includes(tool)}
         onChange={event => setForm({ ...form, tools: event.target.checked ? [...form.tools, tool] : form.tools.filter(item => item !== tool) })} />{tool}</label>)}</div></fieldset>
-      <label>Agent 私有记忆<textarea rows={3} value={form.memory} maxLength={2000} onChange={event => setForm({ ...form, memory: event.target.value })} /><small>{real ? "仅注入该 Agent 的上下文，不自动分享给其他 Agent。" : "这段演示记忆仅在该 Agent 的设置中展示，不自动加入群消息。"}</small></label>
+      {developer && <label>Agent 私有记忆<textarea rows={3} value={form.memory} maxLength={2000} onChange={event => setForm({ ...form, memory: event.target.value })} /><small>{real ? "仅注入该 Agent 的上下文，不自动分享给其他 Agent。" : "这段演示记忆仅在该 Agent 的设置中展示，不自动加入群消息。"}</small></label>}
       {(error || actionError) && <p role="alert" className="cp-error">{error || actionError}</p>}
       <footer><button type="button" className="cp-button" onClick={onClose}>取消</button><button className="cp-button cp-primary" type="submit" disabled={busy}>{real ? "保存配置" : "保存原型配置"}</button></footer>
     </form>
@@ -58,14 +59,14 @@ function GroupForm({ agents, onCreate, onClose, real = false, actionError = "", 
     <label>共同目标<textarea rows={2} value={goal} maxLength={500} placeholder="这个群要一起完成什么？" onChange={event => setGoal(event.target.value)} /></label>
     <fieldset><legend>邀请 Agent · 至少两位</legend><div className="cp-member-options">{agents.map(agent => <label key={agent.id}><input type="checkbox" checked={members.includes(agent.id)}
       onChange={event => setMembers(event.target.checked ? [...members, agent.id] : members.filter(id => id !== agent.id))} /><Avatar agent={agent} /><span><strong>{agent.name}</strong><small>{agent.role}</small></span></label>)}</div></fieldset>
-    <p className="cp-muted">你是群里唯一的真人。tebb 在场时担任协调者，否则由第一位入选的 Agent 协调。</p>
+    <p className="cp-muted">你是群里唯一的真人。创建后会标明负责协调的伙伴，也可以直接 @ 其他成员。</p>
     {actionError && <p role="alert" className="cp-error">{actionError}</p>}
-    {real && members.length > 6 && <p role="alert" className="cp-error">真实验证每群最多6位 Agent，请减少成员。</p>}
+    {real && members.length > 6 && <p role="alert" className="cp-error">每群最多6位伙伴，请减少成员。</p>}
     <footer><button type="button" className="cp-button" onClick={onClose}>取消</button><button className="cp-button cp-primary" type="submit" disabled={busy || !title.trim() || members.length < 2 || (real && members.length > 6)}>创建协作群</button></footer>
   </form></Modal>;
 }
 
-export function ChatPrototype({ standalone = false, live }: { standalone?: boolean; live?: { state: DemoState; act: (action: DemoAction) => Promise<boolean>; busy: boolean; error: string } }) {
+export function ChatPrototype({ standalone = false, live, composeRequest, navigation, developerMode, onDeveloperMode }: { standalone?: boolean; composeRequest?: { id: number; text: string }; navigation?: ReactNode; developerMode?: boolean; onDeveloperMode?: (value: boolean) => void; live?: { state: DemoState; act: (action: DemoAction) => Promise<boolean>; busy: boolean; error: string } }) {
   const [demoState, demoDispatch] = useReducer(demoReducer, undefined, () => {
     if (live) return initialDemo();
     try { return restoreDemo(localStorage.getItem(DEMO_STORAGE)); } catch { return initialDemo(); }
@@ -82,7 +83,19 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
   const [focusedRun, setFocusedRun] = useState("");
   const [automatic, setAutomatic] = useState(false);
   const [tab, setTab] = useState<"tasks" | "members" | "inbox">("tasks");
-  const [inspector, setInspector] = useState(true);
+  const [inspector, setInspector] = useState(false);
+  const [localDeveloper, setLocalDeveloper] = useState(readDeveloperMode);
+  const developer = developerMode ?? localDeveloper;
+  const [markdownPreview, setMarkdownPreview] = useState(false);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [deleting, setDeleting] = useState("");
+  const [renaming, setRenaming] = useState("");
+  const [renameText, setRenameText] = useState("");
+  const [memoryConversation, setMemoryConversation] = useState("");
+  const [memoryAgent, setMemoryAgent] = useState("");
+  const [memoryDraft, setMemoryDraft] = useState("");
+  const menuBox = useRef<HTMLDivElement>(null);
+  const menuTrigger = useRef<HTMLElement | null>(null);
   const [mobileList, setMobileList] = useState(false);
   const [groupOpen, setGroupOpen] = useState(false);
   const [editingAgent, setEditingAgent] = useState<DemoAgent | null>(null);
@@ -118,6 +131,48 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
   useEffect(() => { end.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }); }, [state.selected, messages.length]);
   useEffect(() => { if (tab === "tasks" && inspector && focusedRun) document.getElementById(`cp-run-${focusedRun}`)?.scrollIntoView?.({ block: "nearest" }); }, [focusedRun, tab, inspector]);
 
+  useEffect(() => {
+    if (!menu) return;
+    menuBox.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    return () => menuTrigger.current?.focus?.();
+  }, [menu]);
+  useEffect(() => {
+    if (!composeRequest) return;
+    setDrafts(old => {
+      const previous = old[conversation.id] || "";
+      return { ...old, [conversation.id]: `${previous}${previous ? "\n" : ""}${composeRequest.text}`.slice(0, 4000) };
+    });
+    setStorageError("内容已加入当前草稿，尚未发送（单条消息最多4000字）。");
+  }, [composeRequest]);
+  useEffect(() => { if (!developer) setMemoryConversation(""); }, [developer]);
+  useEffect(() => { setMarkdownPreview(false); }, [state.selected]);
+  function toggleDeveloper() {
+    const next = !developer;
+    setStorageError(saveDeveloperMode(next)); setLocalDeveloper(next); onDeveloperMode?.(next);
+  }
+  function openMenu(id: string, event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) {
+    event.preventDefault(); menuTrigger.current = event.currentTarget;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = "clientX" in event ? event.clientX : bounds.right;
+    const y = "clientY" in event ? event.clientY : bounds.top;
+    setMenu({ id, x: Math.max(8, Math.min(x, (window.innerWidth || 1000) - 220)), y: Math.max(8, Math.min(y, (window.innerHeight || 700) - 180)) });
+  }
+  function menuKeys(id: string, event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) openMenu(id, event);
+  }
+  function editMemory(id: string) {
+    const c = state.conversations.find(c => c.id === id)!;
+    const a = member(c.coordinator)!;
+    setMemoryConversation(id); setMemoryAgent(a.id); setMemoryDraft(a.memory); setMenu(null);
+  }
+  function insertMarkdown(before: string, after = "") {
+    const start = input.current?.selectionStart ?? draft.length;
+    const finish = input.current?.selectionEnd ?? start;
+    const selected = draft.slice(start, finish) || "文字";
+    const value = draft.slice(0, start) + before + selected + after + draft.slice(finish);
+    if (value.length > 4000) { setStorageError("格式插入后超过4000字，请缩短内容。"); return; }
+    setDraft(value); setMarkdownPreview(false); input.current?.focus();
+  }
   function select(id: string) {
     dispatch({ type: "select", id }); setTarget(""); setUpdateRun(""); setFocusedRun(""); setMobileList(false);
   }
@@ -134,7 +189,7 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
     if (mode === "task" || updateRun) { setInspector(true); setTab("tasks"); }
   }
   function addAgent() {
-    setEditingAgent({ id: "", name: "", role: "", mark: "A", tone: "sage", model: real ? "" : "自定义模型 · 演示", tools: [], memory: "" });
+    setEditingAgent({ id: "", name: "", role: "", mark: "A", tone: "sage", model: real ? "" : "自定义模型 · 演示", tools: [], memory: "", avatar: "owl", personality: "" });
   }
   function runCard(run: DemoRun) {
     const owner = member(run.agent)!;
@@ -157,19 +212,21 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
     </article>;
   }
 
-  return <section className={`cp-root ${standalone ? "cp-standalone" : "cp-embedded"}`} aria-label={real ? "协作聊天" : "协作聊天原型"} data-chat-prototype>
-    <div className="cp-preview-strip"><span><b>{real ? "真实协作验证" : "交互原型"}</b> {real ? "本地模型调用 · 计入实际用量 · 仅只读工具" : "本地模拟 · 不调用模型或外部工具"}</span><span className="cp-preview-actions">
+  return <section className={`cp-root ${real ? "cp-live" : "cp-demo"} ${standalone ? "cp-standalone" : "cp-embedded"}`} aria-label={real ? "协作聊天" : "协作聊天原型"} data-chat-prototype>
+    {!real && <div className="cp-preview-strip"><span><b>交互原型</b> 本地模拟 · 不调用模型或外部工具</span><span className="cp-preview-actions">
       {standalone && <button onClick={() => { const next = !dark; setDark(next); document.documentElement.classList.toggle("dark", next); document.documentElement.classList.toggle("light", !next); }} aria-label="切换原型主题">{dark ? "浅色" : "深色"}</button>}
-      {real ? <a href="/client.html?preview=chat">交互演示</a> : <><a href="/client.html?preview=chat&live=1">真实验证 ↗</a><button onClick={() => setResetOpen(true)}>重置演示</button></>}</span></div>
+      <a href="/client.html?preview=chat&live=1">连接真实伙伴 ↗</a><button onClick={() => setResetOpen(true)}>重置演示</button></span></div>}
     <div className="cp-layout">
-      <aside className={`cp-conversations ${mobileList ? "cp-list-open" : ""}`} aria-label="原型会话列表">
+      <aside className={`cp-conversations ${mobileList ? "cp-list-open" : ""}`} aria-label="会话列表">
         <div className="cp-brand"><span>tebb<span className="cp-brand-dot">.</span></span><small>YOUR AGENT CIRCLE</small></div>
         <div className="cp-list-heading"><span>协作空间</span><button className="cp-icon-button" aria-label="新建协作群" onClick={() => setGroupOpen(true)}>＋</button></div>
-        {state.conversations.filter(c => c.kind === "group").map(item => <button key={item.id} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onClick={() => select(item.id)}>
+        {state.conversations.filter(c => c.kind === "group").map(item => <button key={item.id} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onContextMenu={event => openMenu(item.id, event)} onKeyDown={event => menuKeys(item.id, event)} onClick={() => select(item.id)}>
           <Avatar group /><span><strong>{item.title}</strong><small>你 ＋ {item.members.length} 位 Agent</small></span>{state.runs.some(run => run.conversation === item.id && runActive(run)) && <i className="cp-live-dot" />}</button>)}
-        <div className="cp-list-heading cp-list-gap"><span>你的 Agent</span><button className="cp-icon-button" aria-label="创建 Agent" onClick={addAgent}>＋</button></div>
-        {state.conversations.filter(c => c.kind === "dm").map(item => { const agent = member(item.coordinator)!; return <button key={item.id} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onClick={() => select(item.id)}>
-          <Avatar agent={agent} /><span><strong>{agent.name}</strong><small>{agent.role}</small></span>{state.runs.some(run => run.conversation === item.id && runActive(run)) && <i className="cp-live-dot" />}</button>; })}
+        <div className="cp-list-heading cp-list-gap"><span>聊天伙伴</span><button className="cp-icon-button" aria-label="创建 Agent" onClick={addAgent}>＋</button></div>
+        {state.agents.map(agent => { const item = state.conversations.find(c => c.kind === "dm" && c.coordinator === agent.id); return <button key={agent.id} data-companion={agent.id} className={`cp-conversation ${item?.id === state.selected ? "is-selected" : ""}`} aria-pressed={item?.id === state.selected}
+          onContextMenu={item ? event => openMenu(item.id, event) : undefined} onKeyDown={item ? event => menuKeys(item.id, event) : undefined}
+          onClick={() => { if (item) select(item.id); else { dispatch({ type: "open_dm", agent_id: agent.id }); setTarget(""); setUpdateRun(""); } }}>
+          <Avatar agent={agent} /><span><strong>{agent.name}</strong><small>{agent.personality || agent.role}</small></span>{item && state.runs.some(run => run.conversation === item.id && runActive(run)) && <i className="cp-live-dot" />}</button>; })}
         <div className="cp-list-bottom"><button className="cp-inbox-link" onClick={() => { setInspector(true); setTab("inbox"); setMobileList(false); }}><span>◇ 待你处理</span><b>{pending.length}</b></button>
           <div className="cp-profile"><span className="cp-user-avatar">你</span><span><strong>我的工作空间</strong><small>{real ? "本地执行 · 真实用量" : "本地预览 · 未消耗模型额度"}</small></span></div></div>
       </aside>
@@ -178,14 +235,14 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
         <header className="cp-chat-header"><div className="cp-chat-title"><button className="cp-icon-button cp-mobile-menu" aria-label="切换会话列表" aria-expanded={mobileList} onClick={() => setMobileList(!mobileList)}>☰</button><Avatar group={conversation.kind === "group"} agent={member(conversation.coordinator)} />
           <div><h1>{conversation.title}</h1><span>{conversation.kind === "group" ? `你与 ${members.length} 位 Agent · ${member(conversation.coordinator)?.name} 协调` : member(conversation.coordinator)?.role}</span></div></div>
           <button className="cp-button cp-context-toggle" onClick={() => setInspector(!inspector)} aria-expanded={inspector}>{inspector ? "收起详情" : "任务与成员"}</button></header>
-        <div className="cp-goal"><span>共同目标</span><p>{conversation.goal || "为这个群确定一个目标，开始协作。"}</p></div>
+        {conversation.kind === "group" && <div className="cp-goal"><span>共同目标</span><p>{conversation.goal || "为这个群确定一个目标，开始协作。"}</p></div>}
         <div className="cp-message-list" aria-label={real ? "协作聊天记录" : "原型聊天记录"}>
           <div className="cp-date-line"><span>一个持续协作的空间</span></div>
           {!messages.length && <div className="cp-empty-chat"><Avatar agent={member(conversation.coordinator)} /><h2>从一句话开始</h2><p>直接聊天，或者将目标交给 Agent。<br />私聊与协作群分别保留各自的消息。</p><button className="cp-button" onClick={() => { setDraft("帮我整理这周的研究方向"); setMode("task"); input.current?.focus(); }}>试试交给 Agent ↗</button></div>}
           {messages.map(item => item.kind === "notice" ? <p key={item.id} className="cp-system-message">{item.text}</p> : <article key={item.id} className={`cp-message ${item.sender === "user" ? "cp-message-user" : ""}`}>
             {item.sender === "user" ? <span className="cp-user-avatar">你</span> : <Avatar agent={member(item.sender)} />}
             <div className="cp-message-content"><div className="cp-message-author"><strong>{item.sender === "user" ? "你" : member(item.sender)?.name}</strong><span>{item.sender === "user" ? "" : "AGENT"}</span>{item.kind === "result" && <span className="cp-result-tag">成果</span>}</div>
-              <p>{item.text || (real ? "正在等待模型响应…" : "")}</p>{item.run && <button className="cp-message-reference" onClick={() => { setFocusedRun(item.run!); setInspector(true); setTab("tasks"); }}>↗ 关联任务</button>}
+              <div className="cp-markdown"><Markdown text={item.text || (real ? "正在等待模型响应…" : "")} externalLinks={standalone} /></div>{item.run && <button className="cp-message-reference" onClick={() => { setFocusedRun(item.run!); setInspector(true); setTab("tasks"); }}>↗ 关联任务</button>}
               {item.kind === "result" && runs.find(run => run.id === item.run)?.artifact && <button className="cp-artifact-link" onClick={() => setArtifactId(item.run!)}><span>▤</span><span><strong>{real ? "成果文档" : "成果文档 · 演示"}</strong><small>{real ? "打开阅读实际成果" : "打开阅读，查看交付确认"}</small></span><span>↗</span></button>}
             </div></article>)}
           <div ref={end} />
@@ -195,14 +252,16 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
             {!real && <div><button disabled={!active.length} onClick={() => setAutomatic(!automatic)}>{automatic ? "暂停" : "自动演示"}</button><button disabled={!active.length} onClick={() => dispatch({ type: "advance" })}>推进一步 →</button></div>}</div>
           {selectedRun && <div className="cp-reply-context"><span>补充给：<strong>{selectedRun.title}</strong>{!runActive(selectedRun) && " · 已结束，请取消引用"}</span><button aria-label="取消补充要求" onClick={() => setUpdateRun("")}>×</button></div>}
           <form className="cp-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
-            <textarea ref={input} value={draft} maxLength={4000} aria-label={real ? "协作消息" : "原型消息"} rows={2} placeholder={updateRun ? "补充这项任务的要求…" : "和 Agent 聊聊，或 @ 一位成员…"}
+            <div className="cp-markdown-tools" role="toolbar" aria-label="Markdown 编辑"><button type="button" aria-label="插入粗体" onClick={() => insertMarkdown("**", "**")}><b>B</b></button><button type="button" aria-label="插入代码" onClick={() => insertMarkdown("`", "`")}>〈/〉</button><button type="button" aria-label="插入列表" onClick={() => insertMarkdown("\n- ")}>≡</button><button type="button" onClick={() => setMarkdownPreview(!markdownPreview)} aria-pressed={markdownPreview}>{markdownPreview ? "继续编辑" : "预览 Markdown"}</button></div>
+            {markdownPreview && <div className="cp-draft-preview cp-markdown" aria-label="Markdown 草稿预览"><Markdown text={draft || "*写点什么，再来预览。*"} externalLinks={standalone} /></div>}
+            <textarea hidden={markdownPreview} ref={input} value={draft} maxLength={4000} aria-label={real ? "协作消息" : "原型消息"} rows={2} placeholder={updateRun ? "补充这项任务的要求…" : "和 Agent 聊聊，或 @ 一位成员…"}
               onChange={event => setDraft(event.target.value)} onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
             <div className="cp-composer-bottom"><div className="cp-composer-controls"><label><span>发送给</span><select aria-label="发送给" value={target} disabled={!!updateRun} onChange={event => setTarget(event.target.value)}>
               <option value="">{conversation.kind === "group" ? "群协调者" : member(conversation.coordinator)?.name}</option>{members.filter(agent => agent.id !== conversation.coordinator).map(agent => <option key={agent.id} value={agent.id}>@{agent.name}</option>)}</select></label>
               {!updateRun && <div className="cp-mode" role="group" aria-label="消息类型"><button type="button" aria-pressed={mode === "message"} onClick={() => setMode("message")}>发消息</button><button type="button" aria-pressed={mode === "task"} onClick={() => setMode("task")}>交给 Agent</button></div>}</div>
               <button type="submit" className="cp-send" disabled={live?.busy || !draft.trim() || (!!selectedRun && !runActive(selectedRun))}>{updateRun ? "提交补充" : mode === "task" ? real ? "创建任务" : "创建演示任务" : "发送"}<span>↑</span></button></div>
           </form>
-          <div className="cp-composer-hint"><span>Enter 发送 · Shift + Enter 换行</span><span>{real ? "每项任务最多6次模型调用" : "演示数据仅存于此设备"}</span></div>
+          <div className="cp-composer-hint"><span>支持 Markdown · Enter 发送 · Shift + Enter 换行</span><span>{real ? "每项任务最多6次模型调用" : "演示数据仅存于此设备"}</span></div>
           {(state.notice || storageError || live?.error) && <p className="cp-notice" role="status">{live?.error || storageError || state.notice}</p>}
         </div>
       </div>
@@ -220,15 +279,45 @@ export function ChatPrototype({ standalone = false, live }: { standalone?: boole
             {!runs.length && <div className="cp-empty"><span>↗</span><h3>给想法一个去处</h3><p>选择「交给 Agent」，任务会在这里持续展示。聊天不会被任务占住。</p></div>}
             <div className="cp-side-note">{real ? "最多2项长任务与1条聊天同时执行。只有用户提交能创建协作链，成员消息不会互相唤醒。" : "委派与交接会留下记录。演示不会调用真实工具或消耗模型额度。"}</div></> : tab === "members" ? <><div className="cp-section-heading"><span>你 ＋ {members.length} 位 Agent</span><button onClick={() => setGroupOpen(true)}>新建群</button></div>
               <div className="cp-member-card"><span className="cp-user-avatar">你</span><div><strong>你</strong><p>设定方向，做出决定</p></div><small>所有者</small></div>
-              {members.map(agent => <div className="cp-member-card" key={agent.id}><Avatar agent={agent} /><div><strong>{agent.name}{agent.id === conversation.coordinator && <small>协调者</small>}</strong><p>{agent.role}</p><button onClick={() => setEditingAgent(agent)}>模型、工具与记忆 ↗</button></div></div>)}
-              <button className="cp-button cp-full" onClick={addAgent}>＋ 创建 Agent</button><div className="cp-side-note">群里共享目标和成果。Agent 的私有记忆从各自设置中查看。</div></> : <><div className="cp-section-heading"><span>全部会话 · 待你处理</span><span>{pending.length} 项</span></div>
+              {members.map(agent => <div className="cp-member-card" key={agent.id}><Avatar agent={agent} /><div><strong>{agent.name}{agent.id === conversation.coordinator && <small>协调者</small>}</strong><p>{agent.role}</p><button onClick={() => setEditingAgent(agent)}>认识与配置 ↗</button></div></div>)}
+              <button className="cp-button cp-full" onClick={addAgent}>＋ 创建 Agent</button><div className="cp-side-note">群里共享目标和成果。伙伴各有性格和擅长的事，你可以随时调整。</div></> : <><div className="cp-section-heading"><span>全部会话 · 待你处理</span><span>{pending.length} 项</span></div>
                 {!pending.length && <div className="cp-empty"><span>◇</span><h3>现在无需你介入</h3><p>{real ? "本轮只读研究，不会向外部服务发送成果。需要补充要求时，请引用具体任务。" : "在成果文档中选择「演示交付确认」，体验任务如何向你请求决定。"}</p></div>}
                 {pending.map(request => { const run = state.runs.find(item => item.id === request.run)!; return <article className="cp-request" key={request.id}><span className="cp-eyebrow">交付确认 · 演示</span><h3>{run.title}</h3><p>模拟确认将成果发送到飞书。点击后仅记录演示决定，没有实际发送。</p><div><button className="cp-button" onClick={() => dispatch({ type: "decide", id: request.id, approved: false })}>拒绝</button><button className="cp-button cp-primary" onClick={() => dispatch({ type: "decide", id: request.id, approved: true })}>确认演示</button></div><button className="cp-text-button" onClick={() => { select(request.conversation); setArtifactId(run.id); }}>查看原任务成果 ↗</button></article>; })}</>}
         </div></aside>}
+      <nav className="cp-rail" aria-label="工作区快捷栏">
+        <div className="cp-rail-section">{([['tasks', '当前任务'], ['members', '聊天伙伴'], ['inbox', `待你处理${pending.length ? `（${pending.length}）` : ""}`]] as const).map(([key, label]) => <RailButton key={key} icon={key} label={label} active={inspector && tab === key} onClick={() => { setInspector(!(inspector && tab === key)); setTab(key); }} />)}</div>
+        {navigation && <div className="cp-rail-section cp-rail-apps">{navigation}</div>}
+        <div className="cp-rail-bottom"><RailButton icon="developer" label={developer ? "关闭开发者模式" : "开发者模式"} active={developer} onClick={toggleDeveloper} /></div>
+      </nav>
     </div>
+    {menu && <div className="cp-menu-dismiss" onMouseDown={() => setMenu(null)} onContextMenu={event => { event.preventDefault(); setMenu(null); }}>
+      <div className="cp-conversation-menu" role="menu" aria-label="会话操作" ref={menuBox} style={{ left: menu.x, top: menu.y }} onMouseDown={event => event.stopPropagation()} onKeyDown={event => {
+        if (event.key === "Escape" || event.key === "Tab") { if (event.key === "Escape") event.preventDefault(); setMenu(null); }
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+          event.preventDefault(); const buttons = Array.from(menuBox.current?.querySelectorAll<HTMLButtonElement>("button") || []);
+          const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+          buttons[event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (current + (event.key === "ArrowDown" ? 1 : buttons.length - 1)) % buttons.length]?.focus();
+        }
+      }}>
+        {state.conversations.find(c => c.id === menu.id)?.kind === "group" && <button role="menuitem" onClick={() => { setRenaming(menu.id); setRenameText(state.conversations.find(c => c.id === menu.id)!.title); setMenu(null); }}>重命名群聊</button>}
+        <button role="menuitem" onClick={() => { setDeleting(menu.id); setMenu(null); }}>删除对话</button>
+        {developer && <button role="menuitem" onClick={() => editMemory(menu.id)}>调试伙伴记忆</button>}
+      </div>
+    </div>}
+    {deleting && <Modal title="删除这段对话？" onClose={() => setDeleting("")}><div className="cp-form"><p>删除「{state.conversations.find(c => c.id === deleting)?.title}」的聊天记录和成果。伙伴配置与私有记忆保留；底层任务诊断日志保留。</p>
+      {state.runs.some(r => r.conversation === deleting && runActive(r)) && <p role="alert" className="cp-error">请先停止此会话中的任务，等待结束后再删除。</p>}
+      {live?.error && <p role="alert">{live.error}</p>}<footer><button className="cp-button" onClick={() => setDeleting("")}>取消</button><button className="cp-button" disabled={live?.busy || state.runs.some(r => r.conversation === deleting && runActive(r))} onClick={async () => {
+        const id = deleting; if (await sendAction({ type: "delete_conversation", id })) { setDeleting(""); setDrafts(old => { const next = { ...old }; delete next[id]; return next; }); setUpdateRun(""); setTarget(""); setArtifactId(""); }
+      }}>确认删除</button></footer></div></Modal>}
+    {renaming && <Modal title="重命名群聊" onClose={() => setRenaming("")}><form className="cp-form" onSubmit={async event => { event.preventDefault(); if (await sendAction({ type: "rename_conversation", id: renaming, title: renameText })) setRenaming(""); }}><label>群名称<input value={renameText} maxLength={40} onChange={event => setRenameText(event.target.value)} /></label>{live?.error && <p role="alert">{live.error}</p>}<footer><button className="cp-button cp-primary" disabled={live?.busy || !renameText.trim()}>保存名称</button></footer></form></Modal>}
+    {developer && memoryConversation && <Modal title="伙伴私有记忆 · 开发者调试" onClose={() => setMemoryConversation("")}><form className="cp-form" onSubmit={async event => { event.preventDefault(); const agent = member(memoryAgent)!; if (await sendAction({ type: "agent", agent: { ...agent, memory: memoryDraft } })) setMemoryConversation(""); }}>
+      <p className="cp-muted">此处编辑注入指定伙伴的私有偏好；不代表自动提取的全部记忆，也不包括旧助手的全局记忆。新配置在之后提交的任务中生效。</p>
+      <label>伙伴<select value={memoryAgent} onChange={event => { setMemoryAgent(event.target.value); setMemoryDraft(member(event.target.value)!.memory); }}>{state.agents.filter(a => state.conversations.find(c => c.id === memoryConversation)?.members.includes(a.id)).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+      <label>私有记忆<textarea rows={8} maxLength={2000} value={memoryDraft} onChange={event => setMemoryDraft(event.target.value)} /></label>{live?.error && <p role="alert">{live.error}</p>}<footer><button className="cp-button cp-primary" disabled={live?.busy}>保存私有记忆</button></footer>
+    </form></Modal>}
     {groupOpen && <GroupForm agents={state.agents} real={real} actionError={live?.error} busy={live?.busy} onClose={() => setGroupOpen(false)} onCreate={async (title, members, goal) => { if (await sendAction({ type: "group", title, members, goal })) { setGroupOpen(false); setTarget(""); setUpdateRun(""); } }} />}
-    {editingAgent && <AgentForm agent={editingAgent} agents={state.agents} real={real} models={state.models} actionError={live?.error} busy={live?.busy} onClose={() => setEditingAgent(null)} onSave={async agent => { if (await sendAction({ type: "agent", agent })) setEditingAgent(null); }} />}
-    {currentArtifact?.artifact && <Modal title={real ? "成果文档" : "成果文档 · 演示"} onClose={() => setArtifactId("")}><div className="cp-document"><div className="cp-document-label">LOCAL ARTIFACT / {real ? "实际任务成果" : "结构样例"}</div><pre>{currentArtifact.artifact}</pre></div>
+    {editingAgent && <AgentForm developer={developer} agent={editingAgent} agents={state.agents} real={real} models={state.models} actionError={live?.error} busy={live?.busy} onClose={() => setEditingAgent(null)} onSave={async agent => { if (await sendAction({ type: "agent", agent })) setEditingAgent(null); }} />}
+    {currentArtifact?.artifact && <Modal title={real ? "成果文档" : "成果文档 · 演示"} onClose={() => setArtifactId("")}><div className="cp-document"><div className="cp-document-label">LOCAL ARTIFACT / {real ? "实际任务成果" : "结构样例"}</div><div className="cp-markdown"><Markdown text={currentArtifact.artifact} externalLinks={standalone} /></div></div>
       <footer className="cp-document-footer"><span>{real ? "成果已保存在本地，未发送到外部服务" : "未生成真实报告，未发送到外部服务"}</span>{!real && <button className="cp-button cp-primary" disabled={state.requests.some(request => request.run === currentArtifact.id)} onClick={() => {
         dispatch({ type: "request", run: currentArtifact.id }); setArtifactId(""); setInspector(true); setTab("inbox");
       }}>{state.requests.some(request => request.run === currentArtifact.id) ? "已处理或已加入待办" : "演示交付确认"}</button>}</footer></Modal>}

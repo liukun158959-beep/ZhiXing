@@ -17,6 +17,27 @@ from .tasks import TaskManager, TERMINAL
 
 ACTIVE = {"pending", "queued", "running", "waiting", "cancelling"}
 METHODS = {"load_collaboration", "collaboration_action"}
+COMPANIONS = {
+    "tebb": ("tebb", "小缇", "spark", "温暖爽快，善于把模糊的想法变成可执行的计划。"),
+    "research": ("研究员", "阿探", "fox", "好奇、敏锐，喜欢追问为什么；认真核实来源，坦率承认未知。"),
+    "writer": ("写作者", "墨墨", "cat", "细腻、有条理，擅长把复杂内容讲清楚，有一点冷幽默。"),
+}
+AVATARS = {"spark", "fox", "cat", "owl"}
+
+
+def migrate_companions(state):
+    if state.get("companion_version", 0) >= 1:
+        return
+    for agent in state["agents"]:
+        template = COMPANIONS.get(agent["id"])
+        agent.setdefault("avatar", template[2] if template else "owl")
+        agent.setdefault("personality", template[3] if template else "")
+        if template and agent["name"] == template[0] and not any(a["id"] != agent["id"] and a["name"] == template[1] for a in state["agents"]):
+            agent["name"] = template[1]
+            for conversation in state["conversations"]:
+                if conversation["kind"] == "dm" and conversation["coordinator"] == agent["id"]:
+                    conversation["title"] = agent["name"]
+    state["companion_version"] = 1
 
 
 def workspace_path():
@@ -29,10 +50,12 @@ def seed():
         dict(id="research", name="研究员", role="核实一手资料，区分来源事实与推断，给出出处和限制", mark="R", tone="sage", model="", tools=["联网搜索","网页读取"], memory=""),
         dict(id="writer", name="写作者", role="根据收到的资料写成清晰报告，不编造来源或补齐未经核实的事实", mark="W", tone="lavender", model="", tools=[], memory=""),
     ]
-    return dict(version=1, next=20, selected="group-research", agents=agents, messages=[], runs=[], requests=[], notice="", conversations=[
+    state = dict(version=1, next=20, selected="group-research", agents=agents, messages=[], runs=[], requests=[], notice="", conversations=[
         dict(id="group-research", title="AI 研究室", kind="group", members=[a["id"] for a in agents], coordinator="tebb", goal="研究与写作协作，以实际来源和执行回执交付成果。"),
         *[dict(id="dm-"+a["id"], title=a["name"], kind="dm", members=[a["id"]], coordinator=a["id"], goal="独立会话与 Agent 配置") for a in agents],
     ])
+    migrate_companions(state)
+    return state
 
 
 @contextmanager
@@ -91,7 +114,14 @@ class Collaboration:
             db.execute("INSERT OR IGNORE INTO workspace VALUES(1,?)", (json.dumps(seed(), ensure_ascii=False),))
             db.execute("CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL)")
             db.commit()
+            if json.loads(db.execute("SELECT data FROM workspace WHERE id=1").fetchone()[0]).get("companion_version", 0) < 1:
+                backup = self.path.with_name("workspace.before-companions.sqlite3")
+                if not backup.exists():
+                    with closing(sqlite3.connect(backup)) as target:
+                        db.backup(target)
         self.lock = threading.RLock()
+        with transaction(self.path) as (state, _):
+            migrate_companions(state)
         self.stop = threading.Event()
         self.managers = managers or {
             "work": TaskManager(path=self.path.parent / "work" / "tasks.sqlite3"),
@@ -163,6 +193,33 @@ class Collaboration:
         if kind == "select":
             if not conversation: raise ValueError("会话不存在")
             state["selected"] = conversation["id"]
+        elif kind == "open_dm":
+            agent = next((a for a in state["agents"] if a["id"] == action.get("agent_id")), None)
+            if not agent: raise ValueError("伙伴不存在")
+            dm = next((c for c in state["conversations"] if c["kind"] == "dm" and c["coordinator"] == agent["id"]), None)
+            if not dm:
+                dm = dict(id=self._id(), title=agent["name"], kind="dm", members=[agent["id"]], coordinator=agent["id"], goal="")
+                state["conversations"].append(dm)
+            state["selected"] = dm["id"]
+        elif kind in {"delete_conversation", "rename_conversation"}:
+            conversation = next((c for c in state["conversations"] if c["id"] == action.get("id")), None)
+            if not conversation: raise ValueError("会话不存在")
+            if kind == "rename_conversation":
+                title = action.get("title")
+                if conversation["kind"] != "group" or not isinstance(title, str) or not title.strip() or len(title) > 40:
+                    raise ValueError("请为协作群填写1至40字的名称；私聊名称跟随伙伴昵称")
+                conversation["title"] = title.strip()
+                return
+            if any(r["conversation"] == conversation["id"] and r["state"] in ACTIVE for r in state["runs"]):
+                raise ValueError("此会话仍有任务执行中，请先停止任务并等待结束后删除")
+            for key in ("messages", "runs", "requests"):
+                state[key] = [row for row in state[key] if row["conversation"] != conversation["id"]]
+            state["conversations"].remove(conversation)
+            if not state["conversations"]:
+                agent = state["agents"][0]
+                state["conversations"].append(dict(id=self._id(), title=agent["name"], kind="dm", members=[agent["id"]], coordinator=agent["id"], goal=""))
+            if state["selected"] == conversation["id"]:
+                state["selected"] = state["conversations"][0]["id"]
         elif kind == "send":
             if not conversation: raise ValueError("会话不存在")
             text = action.get("text")
@@ -223,11 +280,14 @@ class Collaboration:
             name = agent["name"].strip()
             if not name or re.search(r"[\s@]", name) or any(a["name"] == name and a["id"] != agent.get("id") for a in state["agents"]): raise ValueError("Agent 名称为空、重复或包含空格/@")
             if not isinstance(agent.get("tools"), list) or any(t not in {"联网搜索","网页读取"} for t in agent["tools"]): raise ValueError("真实验证仅支持联网只读工具")
+            if not isinstance(agent.get("avatar", "owl"), str) or agent.get("avatar", "owl") not in AVATARS: raise ValueError("头像无效")
+            if not isinstance(agent.get("personality", ""), str) or len(agent.get("personality", "")) > 160: raise ValueError("性格描述最多160字")
             if agent["model"]: require_item(agent["model"])
             current = next((a for a in state["agents"] if a["id"] == agent.get("id")), None)
             if not current and agent.get("id"): raise ValueError("Agent 不存在")
             if not current and len(state["agents"]) >= 8: raise ValueError("当前最多8位 Agent")
             row = dict(id=current["id"] if current else self._id(), name=name, role=agent["role"], memory=agent["memory"], model=agent["model"], tools=agent["tools"], mark=current["mark"] if current else "A", tone=current["tone"] if current else "sage")
+            row.update(avatar=agent.get("avatar", (current or {}).get("avatar", "owl")), personality=agent.get("personality", (current or {}).get("personality", "")))
             if current: state["agents"][state["agents"].index(current)] = row
             else: state["agents"].append(row)
             dm = next((c for c in state["conversations"] if c["kind"] == "dm" and c["coordinator"] == row["id"]), None)

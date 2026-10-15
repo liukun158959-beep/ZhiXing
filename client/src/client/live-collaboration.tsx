@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { backendInfo, rpc, type BackendInfo } from "./api";
 import { ChatPrototype } from "./chat-prototype";
 import type { DemoAction, DemoState } from "./chat-prototype-state";
@@ -22,7 +22,7 @@ export function browserAccess(): BackendInfo | null {
   } catch { return null; }
 }
 
-export function LiveCollaboration({ info: provided, standalone = false }: { info?: BackendInfo | null; standalone?: boolean }) {
+export function LiveCollaboration({ info: provided, standalone = false, composeRequest, navigation, developerMode, onDeveloperMode }: { info?: BackendInfo | null; standalone?: boolean; composeRequest?: { id: number; text: string }; navigation?: ReactNode; developerMode?: boolean; onDeveloperMode?: (value: boolean) => void }) {
   const [info, setInfo] = useState<BackendInfo | null>(provided || null);
   const [state, setState] = useState<DemoState | null>(null);
   const [error, setError] = useState("");
@@ -38,7 +38,7 @@ export function LiveCollaboration({ info: provided, standalone = false }: { info
     const access = browserAccess();
     if (access) { setInfo(access); return; }
     void backendInfo().then(value => { if (live) setInfo(value); }).catch(() => {
-      if (live) setError("浏览器尚未连接本地协作服务。请使用本机生成的临时验证入口，或在桌面客户端打开「协作聊天」。");
+      if (live) setError("浏览器尚未连接本地协作服务。请使用本机生成的临时验证入口，或打开桌面客户端主窗口。");
     });
     return () => { live = false; };
   }, [provided, retry]);
@@ -75,7 +75,7 @@ export function LiveCollaboration({ info: provided, standalone = false }: { info
       return false;
     } finally { if (mounted.current) setBusy(false); }
   };
-  if (!state) return <section className="cp-connect" aria-label="连接真实协作"><span>tebb / LOCAL AGENTS</span><h1>真实协作验证</h1>
-    <p>{error || "正在连接本地模型与协作任务服务…"}</p><button onClick={() => setRetry(value => value+1)}>重新连接</button><a href="/client.html?preview=chat">返回交互演示</a></section>;
-  return <ChatPrototype standalone={standalone} live={{ state, act, busy, error: actionError || error }} />;
+  if (!state) return <div className="flex min-h-0 flex-1"><section className="cp-connect" aria-label="连接真实协作"><span>tebb / LOCAL AGENTS</span><h1>你的伙伴，即将就位</h1>
+    <p>{error || "正在连接本地模型与协作任务服务…"}</p><button onClick={() => setRetry(value => value+1)}>重新连接</button><a href="/client.html?preview=chat">返回交互演示</a></section>{navigation && <nav className="cp-rail" aria-label="工作区快捷栏">{navigation}</nav>}</div>;
+  return <ChatPrototype composeRequest={composeRequest} navigation={navigation} developerMode={developerMode} onDeveloperMode={onDeveloperMode} standalone={standalone} live={{ state, act, busy, error: actionError || error }} />;
 }

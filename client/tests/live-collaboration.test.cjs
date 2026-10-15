@@ -6,13 +6,18 @@ const Module = require('node:module');
 const ts = require('typescript');
 const React = require('react');
 const { create, act } = require('react-test-renderer');
+const markdownModules = {};
+test.before(async () => {
+  markdownModules['react-markdown'] = await import('react-markdown');
+  markdownModules['remark-gfm'] = await import('remark-gfm');
+});
 
 function load(name, mocks = {}) {
   const base = path.resolve(__dirname, '../src/client', name);
   const filename = fs.existsSync(base+'.tsx') ? base+'.tsx' : base+'.ts';
   const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
   const mod = new Module(filename, module); mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename)); const original = mod.require.bind(mod);
-  mod.require = id => mocks[id] || (id.endsWith('.css') ? {} : id.startsWith('./') ? load(id.slice(2), mocks) : original(id));
+  mod.require = id => markdownModules[id] || mocks[id] || (id.endsWith('.css') ? {} : id.startsWith('./') ? load(id.slice(2), mocks) : original(id));
   mod._compile(compiled, filename); return mod.exports;
 }
 function env() {
@@ -72,7 +77,8 @@ test('real workspace renders actual output and sends actions without changing de
   state.runs[0].citation_check={ok:true,pages_read:1,matched:[{url:'https://example.org/body',level:'body',truncated:true},{url:'https://example.org/summary',level:'snippet',truncated:false}],unverified:[]};
   const actions=[];const {ChatPrototype}=load('chat-prototype',{'./startup':{startupReady(){}}});let view;
   await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state,busy:false,error:'',act:async action=>{actions.push(action);return true;}}}));});
-  assert(strings(view.toJSON()).includes('真实协作验证'));assert(!strings(view.toJSON()).includes('推进一步'));
+  assert(!strings(view.toJSON()).includes('真实协作验证'));
+  await act(async()=>view.root.findByProps({'aria-label':'当前任务'}).props.onClick());assert(!strings(view.toJSON()).includes('推进一步'));
   assert(strings(view.toJSON()).includes('正文节选'));assert(strings(view.toJSON()).includes('仅搜索摘要'));assert(strings(view.toJSON()).includes('事实与结论仍需审阅'));
   await act(async()=>view.root.findByProps({'aria-label':'协作消息'}).props.onChange({target:{value:'真实提问'}}));
   await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));

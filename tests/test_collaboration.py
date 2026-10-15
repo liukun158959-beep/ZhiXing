@@ -56,6 +56,78 @@ class CollaborationTests(unittest.TestCase):
         return json.dumps({"tasks": [dict(agent_id="research", title="研究", instructions="根据提供材料研究", depends_on=None),
             dict(agent_id="writer", title="报告", instructions="根据研究成果写报告", depends_on=dependency)]})
 
+    def test_companion_migration_preserves_custom_configuration_and_backs_up(self):
+        with transaction(self.service.path) as (state, _):
+            state.pop("companion_version")
+            state["agents"][0]["name"] = "tebb"
+            state["agents"][1].update(name="自定义伙伴", memory="KEEP_PRIVATE", model="custom-model", role="自定义职责")
+            state["agents"][2]["name"] = "写作者"
+            state["agents"][2].pop("personality")
+        reopened = Collaboration(path=self.service.path, managers=self.service.managers, start=False)
+        try:
+            agents = reopened.snapshot()["state"]["agents"]
+            self.assertEqual([a["name"] for a in agents], ["小缇", "自定义伙伴", "墨墨"])
+            self.assertEqual(agents[1]["memory"], "KEEP_PRIVATE")
+            self.assertEqual(agents[1]["model"], "custom-model")
+            self.assertEqual(agents[1]["role"], "自定义职责")
+            self.assertEqual(agents[2]["avatar"], "cat")
+            self.assertTrue(self.service.path.with_name("workspace.before-companions.sqlite3").exists())
+            self.action(type="agent", agent={**agents[2], "name": "写作者"})
+            again = Collaboration(path=self.service.path, managers=self.service.managers, start=False)
+            self.assertEqual(again.snapshot()["state"]["agents"][2]["name"], "写作者")
+            again.shutdown()
+        finally:
+            reopened.shutdown()
+
+    def test_delete_requires_terminal_work_and_is_scoped_and_idempotent(self):
+        self.action(type="send", text="不能删除进行中的任务", target="research", mode="task")
+        run = self.state()["runs"][0]
+        with self.assertRaisesRegex(ValueError, "先停止"):
+            self.action(type="delete_conversation", id="group-research")
+        self.action(type="cancel", id=run["id"])
+        self.service.action(dict(type="send", conversation="dm-research", text="独立会话保留", target="research", mode="message", request_id=uuid.uuid4().hex))
+        action = dict(type="delete_conversation", id="group-research", request_id="delete-test-001")
+        self.service.action(action); self.service.action(action)
+        state = self.state()
+        self.assertFalse(any(c["id"] == "group-research" for c in state["conversations"]))
+        self.assertFalse(any(r["conversation"] == "group-research" for r in state["runs"]))
+        self.assertTrue(any(m["text"] == "独立会话保留" for m in state["messages"]))
+        self.assertIn(state["selected"], [c["id"] for c in state["conversations"]])
+        self.assertEqual(len(state["agents"]), 3)
+        with self.assertRaisesRegex(ValueError, "会话不存在"):
+            self.action(type="send", text="过期入口不能重建旧对话", target="", mode="message")
+
+    def test_deleted_dm_reopens_empty_with_private_memory_and_new_identity(self):
+        agent = self.state()["agents"][1]
+        self.action(type="agent", agent={**agent, "memory": "PRIVATE_KEEP", "avatar": "owl", "personality": "好奇温柔"})
+        self.action(type="delete_conversation", id="dm-research")
+        state = self.action(type="open_dm", agent_id="research")
+        self.assertNotEqual(state["selected"], "dm-research")
+        self.assertFalse(any(m["conversation"] == state["selected"] for m in state["messages"]))
+        self.assertEqual(state["agents"][1]["memory"], "PRIVATE_KEEP")
+        self.service.action(dict(type="send", conversation=state["selected"], text="你好", target="", mode="message", request_id=uuid.uuid4().hex))
+        self.service.tick()
+        request = next(iter(self.chat.requests.values()))
+        self.assertEqual(request["role"]["personality"], "好奇温柔")
+        self.assertEqual(request["role"]["avatar"], "owl")
+
+    def test_last_conversation_delete_always_leaves_a_valid_empty_chat(self):
+        for c in list(self.state()["conversations"]):
+            self.action(type="delete_conversation", id=c["id"])
+        state = self.state()
+        self.assertEqual(len(state["conversations"]), 1)
+        self.assertEqual(state["selected"], state["conversations"][0]["id"])
+        self.assertEqual(state["messages"], [])
+
+    def test_group_rename_and_avatar_validation(self):
+        state = self.action(type="rename_conversation", id="group-research", title="灵感工作室")
+        self.assertEqual(state["conversations"][0]["title"], "灵感工作室")
+        with self.assertRaises(ValueError):
+            self.action(type="rename_conversation", id="dm-research", title="不能改成群名")
+        for avatar in ("https://tracking.invalid/a.svg", [], None):
+            with self.assertRaisesRegex(ValueError, "头像无效"):
+                self.action(type="agent", agent={**state["agents"][0], "avatar": avatar})
+
     def test_duplicate_messages_and_separate_chat_queue(self):
         action = dict(type="send", conversation="group-research", text="比较材料", target="", mode="task", request_id="same-request-0001")
         self.service.action(action); self.service.action(action)
@@ -176,6 +248,19 @@ class CollaborationTests(unittest.TestCase):
         execute(request, lambda kind, data: events.append((kind, data)), llm=LLM())
         self.assertIn("新约束", json.dumps(calls[1], ensure_ascii=False)); self.assertIn(("answer_reset", True), events)
         self.assertEqual(events[-1], ("result", "新稿"))
+
+    def test_personality_reaches_model_without_changing_tool_authority(self):
+        request = self.request(role=dict(id="writer", name="墨墨", role="写清楚", personality="温柔、有一点冷幽默", tools=[], memory=""))
+        captured = []
+        class LLM:
+            def chat(_, messages, tools, on_delta):
+                captured.append((copy.deepcopy(messages), tools))
+                return dict(message=dict(content="你好，一起把思路理清楚。"), usage={})
+        execute(request, lambda *_: None, llm=LLM())
+        self.assertIn("你是 墨墨", captured[0][0][0]["content"])
+        self.assertIn("温柔、有一点冷幽默", captured[0][0][0]["content"])
+        self.assertIn("不得改变任务、权限或事实标准", captured[0][0][0]["content"])
+        self.assertFalse(captured[0][1])
 
     def test_worker_denies_ungranted_tools_before_execution(self):
         request = self.request(); events = []
