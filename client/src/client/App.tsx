@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Button, Card, CardBody, GlitchText } from "reend-components";
 import { BoardPane, shouldReloadBoard, type BoardPayload } from "./board";
@@ -80,7 +80,8 @@ import {
   type PersonaPublic,
 } from "./settings";
 
-type Pane = "chat" | "board" | "feishu" | "settings" | "automation" | "monitor" | "video";
+const ChatPrototype = lazy(() => import("./chat-prototype").then(module => ({ default: module.ChatPrototype })));
+type Pane = "chat" | "board" | "feishu" | "settings" | "automation" | "monitor" | "video" | "collaboration";
 
 const debugKind = debugPane();
 const boardDebug = debugKind === "board" || debugKind === "feishu" || debugKind === "automation" || debugKind === "monitor" || debugKind === "video";
@@ -1996,6 +1997,7 @@ export function App() {
             active={pane === "chat" && chatFace === "memory"}
             onClick={() => void openMemory()}
           />
+          <SideNav icon="chat" label="协作聊天 · 原型" active={pane === "collaboration"} onClick={() => setPane("collaboration")} />
           <SideNav
             icon="knowledge"
             label="知识库"
@@ -2082,7 +2084,7 @@ export function App() {
               })}
             </div>
           </>
-        ) : pane === "settings" ? (
+        ) : pane === "settings" || pane === "collaboration" ? (
           <div className="flex-1" />
         ) : (
           <div className="mt-4 flex-1 overflow-y-auto px-2" data-nav="board">
@@ -2096,7 +2098,7 @@ export function App() {
       </aside>
       <main className="main-workspace relative z-10 flex min-w-0 flex-1 flex-col">
         <TopToolbar title={pane === "chat" ? noteSessionId ? "笔记" : ({ thread: "对话", memory: "记忆", knowledge: "知识库" })[chatFace] :
-          ({ board: "今日看板", feishu: "飞书", settings: "设置", automation: "定时任务", monitor: "聊天监控台", video: "视频读取" })[pane]}
+          ({ board: "今日看板", feishu: "飞书", settings: "设置", automation: "定时任务", monitor: "聊天监控台", video: "视频读取", collaboration: "协作聊天 · 原型" })[pane]}
           model={modelItems.find(m => m.id === activeModelId)?.model || ""} connected={!!info || !!debugKind} busy={busy || noteBusy} dark={dark}
           onTheme={() => setDark(!dark)} onNewChat={() => { setPane("chat"); setChatFace("thread"); void newSession(); }}
           onMonitor={() => setPane("monitor")} onVideo={() => setPane("video")} onDebug={() => setAgentDebugOpen(true)}
@@ -2112,7 +2114,9 @@ export function App() {
           onLink={url => setDraft(text => `${text}${text ? "\n" : ""}${url}`)}
           onRequest={() => { setPane("chat"); setChatFace("thread"); }}>
         <AnimatePresence mode="wait">
-          {pane === "chat" && chatFace === "knowledge" ? (
+          {pane === "collaboration" ? (
+            <Suspense key="collaboration" fallback={<p className="p-6">正在打开聊天原型…</p>}><ChatPrototype /></Suspense>
+          ) : pane === "chat" && chatFace === "knowledge" ? (
             <motion.section
               key="knowledge"
               data-chat-face="knowledge"
