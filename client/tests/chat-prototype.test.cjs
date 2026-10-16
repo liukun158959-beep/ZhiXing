@@ -458,3 +458,24 @@ test('successful answer can be collected without sending a new message or openin
  assert(text(view.toJSON()).includes('已收藏到知识库'));
  await act(async()=>view.unmount());
 });
+
+
+test('group creation stays obvious in both navigation tabs and project control is outside the composer',async()=>{
+ environment();const {ChatPrototype}=load('chat-prototype');let view;
+ await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state:initialDemo(),act:async()=>true,busy:false,error:''},onProject(){}}));});
+ const group=button(view,'新建协作群');assert.equal(group.findAllByType('svg').length,1);
+ await act(async()=>button(view,'伙伴').props.onClick());assert(button(view,'新建协作群'));
+ await act(async()=>button(view,'新建协作群').props.onClick());assert(view.root.findByProps({role:'dialog'}));
+ assert.equal(view.root.findAllByProps({className:'cp-project-context'}).length,0);
+ assert(button(view,'工作目录与权限'));
+ await act(async()=>view.unmount());
+});
+
+test('composer menu fits narrow and short viewports and is anchored by the available edge',()=>{
+ const {pickerBounds}=load('composer-popover');
+ const small=pickerBounds({left:250,top:300,bottom:350,width:200},{width:340,height:420});
+ assert.equal(small.position,'fixed');assert(small.left+small.width<=332);assert.equal(small.top,'auto');
+ assert.equal(small.bottom,128);assert(small.maxHeight<=284);
+ const low=pickerBounds({left:10,top:20,bottom:60,width:300},{width:600,height:500});
+ assert.equal(low.top,68);assert.equal(low.bottom,'auto');assert(low.maxHeight<=424);
+});

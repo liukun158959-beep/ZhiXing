@@ -1,3 +1,4 @@
+import { ComposerPicker } from './composer-popover';
 import { useEffect, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -117,7 +118,7 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
     </div>
     {(error || pollError) && <p className="pet-chat-error" role="alert">{error || pollError}</p>}
     <form className="pet-chat-composer" onSubmit={e=>{e.preventDefault();void send();}}>
-      {trigger && <div className="pet-chat-picker" role="listbox" id="pet-composer-options" aria-label={trigger.kind==='members'?'选择成员':'选择技能'}>{options.map((option,index)=><button type="button" role="option" id={`pet-option-${index}`} key={option.id} aria-selected={index===pickerIndex} onMouseDown={e=>e.preventDefault()} onClick={()=>choose(index)}><strong>{option.name}</strong><small>{option.detail}</small></button>)}{!options.length && <p>{trigger.kind==='skills'?'没有匹配的 Skill，可在主窗口配置。':'没有匹配的会话成员。'}按 Esc 退出选择。</p>}</div>}
+      {trigger && <ComposerPicker anchor={input} className="pet-chat-picker" id="pet-composer-options" label={trigger.kind==='members'?'选择成员':'选择技能'} onClose={()=>setDismissed(true)}>{options.map((option,index)=><button type="button" role="option" id={`pet-option-${index}`} key={option.id} aria-selected={index===pickerIndex} onMouseDown={e=>e.preventDefault()} onClick={()=>choose(index)}><strong>{option.name}</strong><small>{option.detail}</small></button>)}{!options.length && <p>{trigger.kind==='skills'?'没有匹配的 Skill，可在主窗口配置。':'没有匹配的会话成员。'}按 Esc 退出选择。</p>}</ComposerPicker>}
       {skills.length>0 && <div className="pet-chat-skills">{skills.map(id=><button type="button" key={id} aria-label={`移除技能 ${id}`} onClick={()=>setSkillMap(old=>({...old,[cid]:skills.filter(s=>s!==id)}))}>{id} ×</button>)}</div>}
       <textarea ref={input} disabled={!cid} value={draft} maxLength={4000} aria-label="浮动聊天消息" placeholder="输入消息，@ 成员 / Skill…" aria-expanded={!!trigger} aria-controls={trigger?'pet-composer-options':undefined} aria-activedescendant={trigger && options.length?`pet-option-${pickerIndex}`:undefined} onChange={e=>changeDraft(e.target.value,e.target.selectionStart ?? e.target.value.length)} onSelect={e=>setCursor(e.currentTarget.selectionStart)} onKeyDown={e=>{
         if(e.nativeEvent.isComposing || e.keyCode===229)return;

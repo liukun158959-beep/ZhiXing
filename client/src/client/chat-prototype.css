@@ -334,7 +334,7 @@
 .tebb-standalone-toolbar { display: flex; justify-content: space-between; align-items: center; height: 50px; min-height: 50px; border-bottom: 1px solid var(--cp-line); padding: 0 20px; font-size: 12px; }
 .tebb-standalone-toolbar > div { display: flex; gap: 20px; }
 .cp-composer { position: relative; }
-.cp-composer-picker { position: absolute; bottom: calc(100% + 8px); left: 0; width: min(380px, 100%); max-height: 270px; overflow-y: auto; z-index: 18; background: var(--cp-surface); border: 1px solid var(--cp-line); border-radius: 12px; padding: 6px; box-shadow: 0 10px 35px #0003; }
+.cp-composer-picker { position: absolute; bottom: calc(100% + 8px); left: 0; width: min(380px, 100%); max-height: 270px; overflow-y: auto; z-index: 18; background: hsl(var(--card)); color: hsl(var(--foreground)); border: 1px solid hsl(var(--border)); border-radius: 12px; padding: 6px; box-shadow: 0 10px 35px #0003; font-family:inherit; font-size:13px; line-height:1.6; }
 .cp-composer-picker button { display: flex; flex-direction: column; gap: 4px; text-align: left; width: 100%; padding: 10px; border-radius: 7px; }
 .cp-composer-picker button[aria-selected="true"] { background: hsl(var(--primary) / .12); }
 .cp-composer-picker small { font-size: 10px; color: var(--cp-muted); }
@@ -543,3 +543,11 @@
 .pet-chat-compose-actions { display:flex; gap:6px; }
 .pet-chat-compose-actions button { width:20px; height:22px; padding:0; font-size:13px; color:hsl(var(--muted-foreground)); background:transparent; }
 .pet-chat-compose-actions button:hover { color:hsl(var(--primary)); }
+
+.cp-sidebar-actions { display:flex; gap:8px; }
+.cp-sidebar-actions svg { width:20px; height:20px; }
+.cp-create-group { color:hsl(var(--primary)) !important; background:hsl(var(--primary) / .1); border:1px solid hsl(var(--primary) / .25); }
+.cp-context-actions .cp-project-button { display:inline-flex; align-items:center; gap:5px; max-width:150px; }
+.cp-project-button span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:90px; font-size:11px; }
+.cp-composer-picker small { color:hsl(var(--muted-foreground)); }
+.cp-composer-picker button[aria-selected="true"] { background:hsl(var(--primary) / .12); }

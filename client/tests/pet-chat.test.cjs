@@ -6,7 +6,7 @@ const { act, create } = require('react-test-renderer');
 function load(name, mocks={}) {
   const base=path.resolve(__dirname,'../src/client',name);const filename=fs.existsSync(base+'.tsx')?base+'.tsx':base+'.ts';
   const mod=new Module(filename,module);mod.filename=filename;mod.paths=Module._nodeModulePaths(path.dirname(filename));
-  const original=mod.require.bind(mod);mod.require=id=>mocks[id]||original(id);
+  const original=mod.require.bind(mod);mod.require=id=>mocks[id]||(id==='./composer-popover'?load('composer-popover',mocks):original(id));
   mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText,filename);return mod.exports;
 }
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');

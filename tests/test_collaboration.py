@@ -457,6 +457,35 @@ class CollaborationTests(unittest.TestCase):
         with self.assertRaises(ValueError): execute(request, lambda kind, data: events.append((kind, data)), llm=LLM())
         self.assertFalse(any(kind == "tool_start" for kind, _ in events))
 
+    def test_search_batch_executes_available_budget_and_returns_receipt_for_excess(self):
+        request=self.request();events=[];queries=[];calls=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(messages.copy())
+                if len(calls)==1:
+                    return dict(message=dict(role='assistant',tool_calls=[dict(id='s'+str(i),function=dict(name='web_search',arguments=json.dumps(dict(query='query'+str(i))))) for i in range(3)]),usage={})
+                return dict(message=dict(content='找到资料 [来源](https://example.org/official)'),usage={})
+        def search(query): queries.append(query);return '摘要 https://example.org/official'
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM(),search=search)
+        self.assertEqual(queries,['query0','query1'])
+        receipts=[m for m in calls[1] if m['role']=='tool'];self.assertEqual(len(receipts),3)
+        self.assertIn('预算',receipts[-1]['content'])
+        self.assertEqual(events[-1][0],'result')
+
+    def test_github_body_evidence_survives_a_blocked_anonymous_fetch(self):
+        request=self.request(role=dict(id='coder',name='码可',role='分析仓库',tools=['扩展只读工具','网页读取']))
+        request['workspace']={};calls=[];events=[]
+        source=dict(kind='github',level='body',url='https://github.com/owner/Atlas/blob/main/README.md',title='Atlas',text='actual source',truncated=False)
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(messages.copy())
+                if len(calls)==1:return dict(message=dict(role='assistant',tool_calls=[dict(id='g',function=dict(name='github_repository',arguments='{"operation":"readme","repo":"Atlas"}'))]),usage={})
+                return dict(message=dict(content='源码分析 [README](https://github.com/owner/Atlas/blob/main/README.md)'),usage={})
+        with patch('desk_companion.github_repository.SPEC',dict(name='github_repository',description='read',parameters={},func=lambda _:dict(ok=True,source=source),isReadOnly=True)):
+            execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertTrue(any(k=='evidence' and d.get('kind')=='github' for k,d in events))
+        self.assertEqual(events[-1][0],'result')
+
     def test_failed_search_can_rephrase_within_budget_and_keeps_actual_evidence(self):
         request = self.request(); events = []; calls = []; searches = []
         class LLM:

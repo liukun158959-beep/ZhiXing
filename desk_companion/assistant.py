@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from .envconf import require_llm_env
 from .feishu_tools import AGENDA_SPEC, CREATE_EVENT_SPEC, TASKS_SPEC
 from .github_tools import RECENT_SPEC, ROADMAP_SPEC, STATUS_SPEC
+from .github_repository import SPEC as REPOSITORY_SPEC
 from .log_tools import ERROR_LOG_SPEC
 from .facts import FORGET_SPEC, REMEMBER_SPEC, facts_prompt
 from .web_search import WEB_SEARCH_SPEC
@@ -151,6 +152,7 @@ def build_agent(host):
     tools.register(**STATUS_SPEC)
     tools.register(**ROADMAP_SPEC)
     tools.register(**RECENT_SPEC)
+    tools.register(**REPOSITORY_SPEC)
     tools.register(**ERROR_LOG_SPEC)
     tools.register(**LIST_SKILLS_SPEC)
     tools.register(**READ_SKILL_SPEC)
