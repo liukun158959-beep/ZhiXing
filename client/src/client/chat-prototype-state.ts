@@ -3,7 +3,7 @@ export type DemoAgent = { id: string; name: string; role: string; mark: string; 
 export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string; legacy?: boolean; summary?: string };
 export type DemoMessage = { id: string; conversation: string; sender: string; text: string; run?: string; kind?: "result" | "notice" };
 export type DemoRun = { id: string; conversation: string; agent: string; title: string; state: "running" | "waiting" | "succeeded" | "cancelled" | "pending" | "queued" | "cancelling" | "failed" | "timed_out" | "interrupted";
-  step: number; dependency?: string; updates: string[]; applied: number; events: string[]; artifact?: string;
+  step: number; dependency?: string; dependencies?: string[]; delivery_state?: "running" | "succeeded" | "failed"; delivery_check?: { ok: boolean; missing?: string[]; missing_sources?: string[] }; updates: string[]; applied: number; events: string[]; artifact?: string;
   kind?: string; parent?: string; answer?: string; error?: string; status?: string; calls?: number; model?: string; input_tokens?: number; output_tokens?: number;
   changes?: { path: string; diff: string }[]; checks?: { command: string; state: string; exit_code: number | null; output: string; stale?: boolean; diff_limited?: boolean }[];
   citation_check?: { ok: boolean; pages_read: number; matched: { url: string; level: string; truncated: boolean }[]; unverified: string[] } };

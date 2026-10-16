@@ -199,6 +199,18 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual(json.loads(events[-1][1]),dict(mode='task',instructions='读取app.py并运行测试'))
         self.assertFalse(any(k=='tool_start' for k,d in events))
 
+    def test_duplicate_route_requests_coalesce_into_one_original_goal_without_extra_model_call(self):
+        request=self.request();request['kind']='route';events=[];calls=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(1)
+                return dict(message=dict(tool_calls=[dict(function=dict(name='start_background_task',arguments=json.dumps(dict(instructions=part)))) for part in ['只查资料','只写报告']]),usage={})
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(len(calls),1)
+        results=[json.loads(d) for k,d in events if k=='result']
+        self.assertEqual(results,[dict(mode='task',instructions=request['text'])])
+        self.assertFalse(any(k=='tool_start' for k,d in events))
+
     def test_chat_artifact_can_be_saved_once_as_note_and_read_as_full_attachment(self):
         from desk_companion.bridge import Bridge
         from desk_companion import notebook, local_sources
@@ -402,6 +414,125 @@ class CollaborationTests(unittest.TestCase):
                       dict(tasks=[dict(agent_id="research", title="a", instructions="a", depends_on=False)])]:
             with self.assertRaises(ValueError): parse_plan(json.dumps(value), {"research"})
 
+    def test_original_goal_survives_a_route_that_narrows_it_to_a_stale_failure(self):
+        goal='比较我的项目和外部框架，读取源码并输出报告'
+        self.action(type='send',text=goal,mode='auto',target='');self.service.tick()
+        root=self.state()['runs'][-1]
+        self.chat.complete('collab:'+root['id']+':0',json.dumps(dict(mode='task',instructions='只补外部资料，私有项目尚未授权')))
+        self.service.tick();plan=self.state()['runs'][-1]
+        self.assertEqual(self.work.items,{})
+        self.service.tick();request=list(self.work.requests.values())[-1]
+        self.assertEqual(request['text'],goal)
+        self.assertNotIn('尚未授权',request['text'])
+
+    def test_parallel_collection_fans_in_all_evidence_before_delivery(self):
+        state=self.action(type='agent',agent={**self.state()['agents'][0],'tools':['扩展只读工具']})
+        # Include three workers; the coordinator may also participate when explicitly @ selected.
+        with transaction(self.service.path) as (s,_):
+            s['agents'].append(dict(id='repo',name='源码伙伴',role='阅读项目',model='',tools=['扩展只读工具'],memory='',mark='C',tone='sage'))
+            s['conversations'][0]['members'].append('repo')
+        self.action(type='send',text='完整对比报告',mode='task',target='');self.service.tick()
+        root=self.state()['runs'][0]
+        rows=[dict(agent_id='repo',title='项目源码',instructions='读项目',stage='collect',required_sources=['repository'],depends_on=None),
+              dict(agent_id='research',title='公开资料',instructions='读外部资料',stage='collect',required_sources=['web'],source_topics=['框架甲','框架乙','平台丙'],depends_on=None),
+              dict(agent_id='writer',title='最终对比',instructions='综合全部资料',stage='collect',depends_on=None)]
+        self.work.complete('collab:'+root['id']+':0',json.dumps(dict(tasks=rows)));self.service.tick();self.service.tick()
+        repo,research,writer=self.state()['runs'][1:]
+        self.assertEqual(writer['state'],'waiting');self.assertEqual(writer['stage'],'deliver')
+        self.assertEqual(set(writer['dependencies']),{repo['id'],research['id']})
+        self.assertEqual(self.state()['runs'][0]['delivery_state'],'running')
+        research_req=self.work.requests['collab:'+research['id']+':0']
+        self.assertEqual((research_req['search_budget'],research_req['fetch_budget']),(3,6))
+        self.work.complete('collab:'+repo['id']+':0','源码结果',evidence=dict(kind='github',sources=[dict(kind='github',url='https://github.com/u/r/blob/main/core.py',level='body',text='SOURCE_CODE')]))
+        self.service.tick();self.assertEqual(self.state()['runs'][-1]['state'],'waiting')
+        self.work.complete('collab:'+research['id']+':0','公开资料结果',evidence=dict(kind='page',url='https://example.org/doc',level='body',text='PUBLIC_BODY'))
+        self.service.tick();self.service.tick()
+        req=self.work.requests['collab:'+writer['id']+':0']
+        self.assertIn('SOURCE_CODE',json.dumps(req));self.assertIn('PUBLIC_BODY',json.dumps(req))
+        self.assertEqual(set(req['required_sources']),{'repository','web'})
+        self.assertEqual(req['objective'],'完整对比报告')
+        self.work.complete('collab:'+writer['id']+':0','最终报告',state='failed');self.service.tick()
+        self.assertEqual(self.state()['runs'][0]['delivery_state'],'failed')
+
+    def test_citation_repair_has_a_reserved_call_and_no_extra_fetch_is_executed(self):
+        request=self.request();request['budget']=4;events=[];calls=[];queries=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(copy.deepcopy(tools))
+                if len(calls)<3:return dict(message=dict(role='assistant',tool_calls=[dict(id=str(len(calls)),function=dict(name='web_search',arguments='{"query":"official"}'))]),usage={})
+                return dict(message=dict(content='没有链接的草稿' if len(calls)==3 else '实际来源 [官方](https://example.org/doc)'),usage={})
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM(),search=lambda q:queries.append(q) or '实际摘要 https://example.org/doc')
+        self.assertEqual(len(calls),4);self.assertEqual(len(queries),2)
+        self.assertEqual(calls[-2:], [[],[]]);self.assertEqual([v['ok'] for k,v in events if k=='citation_check'],[False,True])
+
+    def test_final_delivery_requires_real_body_sources_and_explicit_complete_result(self):
+        from desk_companion.collaboration_worker import PublicFailure
+        request=self.request(role=dict(id='writer',name='墨墨',role='综合报告',tools=[]))
+        request.update(stage='deliver',required_sources=['repository','web'])
+        sources=[dict(kind='page',url='https://example.org/doc',level='body',text='public doc'),
+                 dict(kind='github',sources=[dict(kind='github',url='https://github.com/u/r/blob/main/core.py',level='body',text='core source')])]
+        class LLM:
+            complete=True
+            def chat(_,messages,tools,on_delta):
+                return dict(message=dict(tool_calls=[dict(id='done',function=dict(name='submit_deliverable',arguments=json.dumps(dict(report='比较依据 [公开](https://example.org/doc) [源码](https://github.com/u/r/blob/main/core.py)',complete=_.complete,missing=[] if _.complete else ['仅框架，核心对比未完成'],limitations=['未要求的额外版本信息未核实']))))]),usage={})
+        llm=LLM();events=[];request['source_evidence']=sources
+        execute(request,lambda k,d:events.append((k,d)),llm=llm)
+        self.assertEqual(events[-1][0],'result');self.assertTrue(next(v for k,v in events if k=='delivery_check')['ok'])
+        self.assertEqual(next(v for k,v in events if k=='delivery_check')['limitations'],['未要求的额外版本信息未核实'])
+        llm.complete=False
+        with self.assertRaisesRegex(PublicFailure,'未完成'):execute(request,lambda *_:None,llm=llm)
+        llm.complete=True;request['source_evidence']=sources[:1]
+        with self.assertRaises(PublicFailure):execute(request,lambda *_:None,llm=llm)
+
+    def test_repository_tool_events_do_not_consume_search_quota(self):
+        self.action(type='send',text='读取项目',target='research',mode='task');self.service.tick()
+        run=self.state()['runs'][-1];task='collab:'+run['id']+':0'
+        self.work.items[task]['events']=[dict(seq=1,kind='tool_start',data=dict(tool='github_repository'))]
+        self.service.tick();self.assertEqual(self.state()['runs'][-1]['search_calls'],0)
+
+    def test_a_denied_url_does_not_spend_the_actual_network_request_budget(self):
+        request=self.request();request['fetch_budget']=1;calls=[];events=[];fetched=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(copy.deepcopy(messages));step=len(calls)
+                if step==4:return dict(message=dict(content='已读 [正文](https://example.org/real)'),usage={})
+                name='web_search' if step==2 else 'web_fetch'
+                args=dict(query='official') if step==2 else dict(url='https://example.org/guessed' if step==1 else 'https://example.org/real')
+                return dict(message=dict(role='assistant',tool_calls=[dict(id=str(step),function=dict(name=name,arguments=json.dumps(args)))]),usage={})
+        def fetch(url):
+            fetched.append(url);return dict(kind='page',level='body',url=url,text='Actual body')
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM(),search=lambda q:'来源 https://example.org/real',fetch=fetch)
+        self.assertEqual(fetched,['https://example.org/real'])
+        self.assertEqual(sum(k=='tool_start' and v['tool']=='web_fetch' for k,v in events),1)
+        self.assertTrue(any(k=='tool_end' and '未占用' in v.get('error','') for k,v in events))
+
+    def test_pseudo_tool_markup_is_repaired_without_executing_it_or_leaking_reasoning(self):
+        request=self.request();request['source_evidence']=[dict(kind='page',level='body',url='https://example.org/real',text='Body')]
+        calls=[];events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(copy.deepcopy(messages))
+                return dict(message=dict(content='<tool_call><function=web_fetch>https://example.org/real</function></tool_call>' if len(calls)==1 else '完整报告 [来源](https://example.org/real)',reasoning_content='PRIVATE_REASONING'),usage={})
+        with patch('desk_companion.web_sources.fetch_page') as fetch:
+            execute(request,lambda k,d:events.append((k,d)),llm=LLM());fetch.assert_not_called()
+        self.assertEqual(len(calls),2);self.assertEqual(events[-1][0],'result')
+        self.assertTrue(any(m.get('reasoning_content')=='PRIVATE_REASONING' for m in calls[-1]))
+        self.assertNotIn('PRIVATE_REASONING',json.dumps(events));self.assertFalse(any(k=='tool_start' for k,v in events))
+
+    def test_model_uses_evidence_ids_and_unknown_ids_are_not_accepted(self):
+        from desk_companion.collaboration_worker import PublicFailure
+        request=self.request();request['source_evidence']=[dict(kind='page',level='body',url='https://example.org/actual',text='Body')]
+        from desk_companion.web_sources import source_catalog
+        ident=source_catalog(request['source_evidence'])[0]['id']
+        events=[]
+        class LLM:
+            text=f'比较结论 [{ident}]'
+            def chat(_,messages,tools,on_delta):return dict(message=dict(content=_.text),usage={})
+        llm=LLM();execute(request,lambda k,d:events.append((k,d)),llm=llm)
+        self.assertIn('[1](<https://example.org/actual>)',events[-1][1])
+        llm.text=f'真实 [{ident}] 与伪造 [S9]'
+        with self.assertRaises(PublicFailure):execute(request,lambda *_:None,llm=llm)
+
     def request(self, role=None):
         self.action(type="send", text="根据材料写作", target="research", mode="task"); self.service.tick()
         request = copy.deepcopy(next(iter(self.work.requests.values())))
@@ -545,6 +676,7 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual([d['ok'] for k,d in events if k=='citation_check'],[False,True])
 
     def test_fetch_permission_and_known_url_are_enforced_and_no_fake_evidence(self):
+        from desk_companion.collaboration_worker import PublicFailure
         class LLM:
             def chat(_,messages,tools,on_delta):
                 return dict(message=dict(role='assistant',tool_calls=[dict(id='fetch',function=dict(name='web_fetch',arguments='{"url":"https://example.org/not-discovered"}'))]),usage={})
@@ -553,7 +685,7 @@ class CollaborationTests(unittest.TestCase):
         self.assertFalse(any(k=='tool_start' for k,d in events))
         events=[];request=self.request()
         with patch('desk_companion.web_sources.fetch_page') as fetch:
-            with self.assertRaises(ValueError):execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+            with self.assertRaisesRegex(PublicFailure,'预算'):execute(request,lambda k,d:events.append((k,d)),llm=LLM())
             fetch.assert_not_called()
         self.assertFalse(any(k=='evidence' for k,d in events))
 

@@ -133,12 +133,21 @@ def selected_materials(path, run_id):
     return next((r.get('selection', {}) for r in state['runs'] if r['id']==run_id), {})
 
 
+def dependencies(run):
+    """Read both legacy single edges and bounded fan-in edges."""
+    return run.get('dependencies') or ([run['dependency']] if run.get('dependency') else [])
+
+
+def call_budget(agent_id, kind='task'):
+    return 2 if kind in {'plan','route','chat','compress'} else 12 if agent_id == 'coder' else 8
+
+
 def parse_plan(text, members):
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text.strip())
     value = json.loads(text)
     rows = value.get("tasks") if isinstance(value, dict) else None
-    if not isinstance(rows, list) or not 1 <= len(rows) <= 2:
-        raise ValueError("委派计划必须包含1至2项任务")
+    if not isinstance(rows, list) or not 1 <= len(rows) <= 3:
+        raise ValueError("委派计划必须包含1至3项任务")
     used = set()
     for index, row in enumerate(rows):
         if not isinstance(row, dict) or row.get("agent_id") not in members or row["agent_id"] in used:
@@ -148,8 +157,14 @@ def parse_plan(text, members):
             if not isinstance(row.get(field), str) or not row[field].strip() or len(row[field]) > (160 if field == "title" else 3000):
                 raise ValueError("委派说明无效")
         dep = row.get("depends_on")
-        if dep is not None and (type(dep) is not int or not 0 <= dep < index):
+        edges = dep if isinstance(dep,list) else [] if dep is None else [dep]
+        if len(edges)>2 or len(set(map(str,edges)))!=len(edges) or any(type(d) is not int or not 0 <= d < index for d in edges):
             raise ValueError("依赖必须指向前序任务")
+        if row.get('stage','collect') not in {'collect','deliver'}: raise ValueError('任务阶段无效')
+        required=row.get('required_sources',[])
+        if not isinstance(required,list) or any(s not in {'repository','web'} for s in required): raise ValueError('来源要求无效')
+        topics=row.get('source_topics',[])
+        if not isinstance(topics,list) or len(topics)>4 or any(not isinstance(t,str) or not t.strip() or len(t)>80 for t in topics):raise ValueError('资料对象最多4项，每项1至80字')
     return rows
 
 
@@ -364,7 +379,7 @@ class Collaboration:
             if not run: raise ValueError("任务不存在")
             stop_ids = {run["id"]}
             while True:
-                expanded = stop_ids | {r["id"] for r in state["runs"] if r.get("dependency") in stop_ids or r.get("parent") in stop_ids}
+                expanded = stop_ids | {r["id"] for r in state["runs"] if set(dependencies(r)) & stop_ids or r.get("parent") in stop_ids}
                 if expanded == stop_ids: break
                 stop_ids = expanded
             for item in state["runs"]:
@@ -453,14 +468,14 @@ class Collaboration:
             for run in list(state["runs"]):
                 if run["state"] not in ACTIVE: continue
                 if run["state"] == "waiting":
-                    dep = next(r for r in state["runs"] if r["id"] == run["dependency"])
-                    if dep["state"] == "succeeded":
-                        run["context"].append(dict(sender=dep["agent"], text=dep["answer"][:24000]))
-                        if dep.get("evidence"):
-                            run["source_evidence"]=dep["evidence"]
-                        run["state"] = "pending"; run["events"].append("已收到前序成果，准备接续")
-                    elif dep["state"] not in ACTIVE:
+                    preceding = [next(r for r in state['runs'] if r['id']==ident) for ident in dependencies(run)]
+                    if any(dep['state'] not in ACTIVE | {'succeeded'} for dep in preceding):
                         self._finish(state, run, "cancelled", "前序任务未成功，未继续执行")
+                    elif all(dep['state']=='succeeded' for dep in preceding):
+                        for dep in preceding:
+                            run["context"].append(dict(sender=dep["agent"], text=dep["answer"][:24000]))
+                        run['source_evidence']=[e for dep in preceding for e in dep.get('source_evidence',[])+dep.get('evidence',[])]
+                        run["state"] = "pending"; run["events"].append("已收到前序成果，准备接续")
                     continue
                 manager = self._manager(run)
                 if run["state"] == "pending":
@@ -468,8 +483,10 @@ class Collaboration:
                         run['status'] = '等待工作目录的编码任务完成'; continue
                     request = dict(workflow="collaboration", collab_path=str(self.path), collab_run=run["id"],
                         role=run["agent_config"], kind=run["kind"], model_id=run["model_id"], context=run["context"], workspace=run.get("workspace"), selection=run.get("selection", {}),
-                        members=run.get("members", []), applied=run["applied"], draft=run.get("parent_draft", ""), budget=max(0, (12 if run["agent"]=="coder" else 6)-run["calls"]),
-                        search_budget=max(0, 2-run.get("search_calls",run.get("tool_calls",0))),fetch_budget=max(0,4-run.get("fetch_calls",0)),
+                        members=run.get("members", []), applied=run["applied"], draft=run.get("parent_draft", ""), budget=max(0, call_budget(run['agent'],run['kind'])-run["calls"]),
+                        objective=run.get('objective',run['input']),stage=run.get('stage','collect'),required_sources=run.get('required_sources',[]),
+                        search_budget=max(0, run.get('search_limit',2)-run.get("search_calls",0)),fetch_budget=max(0,run.get('fetch_limit',4)-run.get("fetch_calls",0)),
+                        source_topics=run.get('source_topics',[]),
                         source_evidence=run.get("source_evidence",[]),evidence=run.get("evidence",[]))
                     run["task"] = manager.submit(run["input"], "collab-"+run["id"], "collaboration", submission_key=f"collab:{run['id']}:{run['attempt']}",
                         task_limits=execution_limits(run['agent']), **({**request, **({"sampling":run["sampling"]} if run.get("sampling") else {})}))
@@ -490,10 +507,11 @@ class Collaboration:
                         for check in run.get("checks", []): check["stale"] = True
                     elif kind == "verification": run.setdefault("checks", []).append(data)
                     elif kind == "citation_check": run["citation_check"]=data
+                    elif kind == "delivery_check": run['delivery_check']=data
                     elif kind in {"tool_start", "tool_end"}:
                         if kind == "tool_start":
-                            counter="fetch_calls" if data.get("tool")=="web_fetch" else "search_calls"
-                            run[counter]=run.get(counter,run.get("tool_calls",0) if counter=="search_calls" else 0)+1
+                            counter={'web_fetch':'fetch_calls','web_search':'search_calls'}.get(data.get('tool'))
+                            if counter: run[counter]=run.get(counter,0)+1
                             run["tool_calls"] = run.get("tool_calls", 0)+1
                         run["events"].append(f"{kind}: {data.get('tool')} {data.get('url') or data.get('query') or ''} {data.get('status', '')} {data.get('provider') or ''} {data.get('error', '')}")
                 run["answer"] = task["answer"]
@@ -508,7 +526,7 @@ class Collaboration:
                     self._finish(state, run, task["state"], task["error"])
                     continue
                 if run["applied"] < len(run["updates"]):
-                    if run["calls"] >= (12 if run["agent"]=="coder" else 6):
+                    if run["calls"] >= call_budget(run['agent'],run['kind']):
                         self._finish(state, run, "failed", "调用预算已用完，最新补充尚未应用；请参考部分结果新建任务")
                     else:
                         run.update(state="pending", attempt=run["attempt"]+1, cursor=0, parent_draft=run["answer"])
@@ -528,7 +546,8 @@ class Collaboration:
                     else:
                         conversation = next(c for c in state['conversations'] if c['id']==run['conversation'])
                         is_group = conversation['kind']=='group' and (run['agent']==conversation['coordinator']) and bool(run.get('members'))
-                        child = self._run(state, conversation, run['agent'], run['input']+'\n\n执行要求：'+content, 'plan' if is_group else 'task', parent=run['id'], context=run['context']+[dict(sender='user',text=t) for t in run['updates']], model_id=run['model_id'])
+                        # Routing classifies; it cannot replace or narrow the human request.
+                        child = self._run(state, conversation, run['agent'], run['input'], 'plan' if is_group else 'task', parent=run['id'], context=run['context']+[dict(sender='user',text=t) for t in run['updates']], model_id=run['model_id'])
                         child['workspace'] = run['workspace']
                         child['members'] = run.get('members', [])
                         child['selection'] = run.get('selection', {})
@@ -547,13 +566,32 @@ class Collaboration:
                     conversation = next(c for c in state["conversations"] if c["id"] == run["conversation"])
                     children = []
                     for plan in plans:
-                        dependency = children[plan["depends_on"]]["id"] if plan.get("depends_on") is not None else None
+                        dep=plan.get('depends_on')
+                        edges=dep if isinstance(dep,list) else [] if dep is None else [dep]
+                        agent=next(a for a in run['members'] if a['id']==plan['agent_id'])
+                        stage='deliver' if children and not agent.get('tools') else plan.get('stage','collect')
+                        # A synthesis task consumes every preceding collection, even
+                        # if a model omitted a dependency in its proposed plan.
+                        if stage=='deliver': edges=list(range(len(children)))
+                        deps=[children[index]['id'] for index in edges]
+                        dependency=deps[-1] if deps else None
                         child = self._run(state, conversation, plan["agent_id"], plan["instructions"], parent=run["id"], dependency=dependency,
-                            context=run["context"] + [dict(sender="user", text=run["input"]), *[dict(sender="user", text=t) for t in run["updates"]]])
+                            context=run["context"] + [dict(sender="user", text=run["input"]), *[dict(sender="user", text=t) for t in run["updates"]]],model_id=run['model_id'])
+                        child.update(dependencies=deps,objective=run['input'],stage=stage,required_sources=plan.get('required_sources',[]))
+                        topics=list(dict.fromkeys(plan.get('source_topics',[])))
+                        child.update(source_topics=topics,search_limit=max(2,len(topics)),fetch_limit=max(4,len(topics)*2))
+                        if stage=='deliver': child['required_sources']=list(dict.fromkeys(child['required_sources']+[s for previous in children for s in previous.get('required_sources',[])]))
                         child["workspace"] = run["workspace"]; child["title"] = plan["title"]; child["selection"] = run.get("selection", {}); children.append(child)
                     run["answer"] = "已委派：\n" + "\n".join(next(a["name"] for a in state["agents"] if a["id"] == p["agent_id"]) + "：" + p["title"] for p in plans)
                     run["events"].append("委派计划已校验；子任务不能继续委派")
                 self._finish(state, run, "succeeded")
+            by_parent={}
+            for child in state['runs']:
+                if child.get('parent'): by_parent.setdefault(child['parent'],[]).append(child)
+            for plan in (r for r in state['runs'] if r['kind']=='plan' and r['state']=='succeeded'):
+                children=by_parent.get(plan['id'],[])
+                if children:
+                    plan['delivery_state']='running' if any(c['state'] in ACTIVE for c in children) else 'succeeded' if all(c['state']=='succeeded' for c in children) else 'failed'
 
     def _loop(self):
         while not self.stop.wait(.3):

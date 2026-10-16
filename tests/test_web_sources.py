@@ -75,6 +75,18 @@ class SourcesTests(unittest.TestCase):
         self.assertTrue(sources.check_citations('[正文](https://example.org/body)、[摘要](https://example.org/search)。',ledger)['ok'])
         self.assertEqual(sources.urls('[维基](https://example.org/Jev_(AI_model))。'),['https://example.org/Jev_(AI_model)'])
 
+    def test_evidence_ids_render_exact_links_and_cannot_invent_or_rebind_sources(self):
+        ledger=[dict(url='https://example.org/doc_(v1)',level='snippet',text='summary'),dict(url='https://example.org/other',level='body',text='other')]
+        ledger.append(dict(url='https://example.org/doc_(v1)',level='body',text='actual body'))
+        catalog=sources.source_catalog(ledger)
+        self.assertEqual([s['level'] for s in catalog],['body','body'])
+        self.assertEqual(catalog[0]['id'],sources.source_catalog(ledger[2:])[0]['id'])
+        text,unknown=sources.render_citations(f"事实 [{catalog[0]['id']}] 和 [{catalog[1]['id']}]，未知 [S3]，`[S99]`",ledger)
+        self.assertEqual(unknown,['S3']);self.assertIn('`[S99]`',text)
+        self.assertIn('[1](<https://example.org/doc_(v1)>)',text)
+        self.assertTrue(sources.check_citations(text,ledger)['ok'])
+        self.assertFalse(sources.source_catalog([dict(url='https://user:secret@example.org/doc'),dict(url='https://example.org/x>bad')]))
+
     def test_transport_pins_public_ip_and_original_tls_name_through_proxy(self):
         # Exercise the real transport factory rather than the extraction stub.
         tunnels=[]

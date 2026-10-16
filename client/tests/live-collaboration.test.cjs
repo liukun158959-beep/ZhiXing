@@ -85,3 +85,15 @@ test('real workspace renders actual output and sends actions without changing de
   assert.equal(actions[0].text,'真实提问');assert.equal(actions[0].mode,'auto');
   await act(async()=>view.unmount());
 });
+
+test('a finished planner displays the collaboration delivery outcome instead of premature completion', async () => {
+  for(const [status,label] of [['running','协作进行中'],['failed','协作未完成'],['succeeded','协作已交付']]) {
+    env();const {initialDemo}=load('chat-prototype-state');const state=initialDemo();state.messages=[];
+    state.runs=[{...state.runs[0],state:'succeeded',kind:'plan',delivery_state:status}];
+    const {ChatPrototype}=load('chat-prototype');let view;
+    await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state,busy:false,error:'',act:async()=>true}}));});
+    await act(async()=>view.root.findByProps({'aria-label':'当前任务'}).props.onClick());
+    assert(strings(view.root.findByProps({'data-demo-run':'r1'})).includes(label));
+    await act(async()=>view.unmount());
+  }
+});

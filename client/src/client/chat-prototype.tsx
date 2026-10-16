@@ -239,12 +239,15 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   }
   function runCard(run: DemoRun) {
     const owner = member(run.agent)!;
+    const displayState=run.delivery_state || run.state;
+    const chainLabel=run.delivery_state ? ({running:'协作进行中',succeeded:'协作已交付',failed:'协作未完成'} as const)[run.delivery_state] : '';
     return <article key={run.id} id={`cp-run-${run.id}`} className={`cp-task ${focusedRun === run.id ? "cp-task-focused" : ""}`} data-demo-run={run.id}>
-      <div className="cp-task-meta"><span className={`cp-state cp-state-${run.state}`}><i />{real ? ({ running: "执行中", succeeded: "已完成", cancelled: "已停止" } as Record<string, string>)[run.state] || RUN_LABELS[run.state] : RUN_LABELS[run.state]}</span><span>{owner.name}</span></div>
+      <div className="cp-task-meta"><span className={`cp-state cp-state-${displayState}`}><i />{real ? chainLabel || ({ running: "执行中", succeeded: "已完成", cancelled: "已停止" } as Record<string, string>)[run.state] || RUN_LABELS[run.state] : RUN_LABELS[run.state]}</span><span>{owner.name}</span></div>
       <h3>{run.title}</h3>
       {!real && <div className="cp-progress" aria-label={`演示进度 ${Math.min(100, Math.round(run.step / 3 * 100))}%`}><span style={{ width: `${run.step / 3 * 100}%` }} /></div>}
       <p className="cp-task-step">{real ? run.error || (run.state === "waiting" ? "前序成果就绪后接续执行" : run.status || "等待调度") : run.state === "waiting" ? "前序成果就绪后接续执行" : run.state === "cancelled" ? "进度已保留" : run.state === "succeeded" ? "成果结构样例已就绪" : STEP_LABELS[Math.min(run.step, 2)]}</p>
       {<p className="cp-run-usage">{run.model} · {run.calls || 0} 次调用<br />{(run.input_tokens || run.output_tokens) ? `输入 ${run.input_tokens || 0} / 输出 ${run.output_tokens || 0} tokens` : "暂无用量回执"}</p>}
+      {real && run.delivery_check && <p className={run.delivery_check.ok ? 'cp-muted' : 'cp-error'}>交付检查 · {run.delivery_check.ok ? '已提交完整成果，请审阅' : `尚未完成：${[...(run.delivery_check.missing || []),...(run.delivery_check.missing_sources || [])].join('、') || '待修订'}`}</p>}
       {real && run.citation_check && <details><summary>来源核验 · {run.citation_check.ok ? "链接匹配" : "需修订"} · 已读 {run.citation_check.pages_read} 页</summary>
         <p className="cp-muted">仅核对来源读取记录；事实与结论仍需审阅。</p>
         <ul>{run.citation_check.matched.map((source, index) => <li key={index}><a href={source.url} target="_blank" rel="noreferrer">{source.url}</a> · {source.level === "body" ? source.truncated ? "正文节选" : "已读正文" : "仅搜索摘要"}</li>)}</ul>

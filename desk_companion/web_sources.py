@@ -236,6 +236,34 @@ def evidence_sources(evidence):
     return out
 
 
+def source_catalog(sources):
+    """Stable evidence IDs; a later body upgrades the same URL's snippet."""
+    rows={}
+    for source in sources:
+        link=source.get('url','')
+        parsed=urlsplit(link)
+        if parsed.scheme not in {'http','https'} or not parsed.hostname or parsed.username is not None or parsed.password is not None or re.search(r'[\s<>"\\\x00-\x1f]',link):continue
+        key=url_key(source['url'])
+        if key not in rows: rows[key]=dict(source,id='S'+hashlib.sha256(key.encode()).hexdigest()[:12].upper())
+        elif source.get('level')=='body': rows[key]={**source,'id':rows[key]['id']}
+    return list(rows.values())
+
+
+def render_citations(text, sources):
+    catalog={s['id']:s for s in source_catalog(sources)}
+    unknown=[]
+    # Code samples stay untouched. URLs still pass the existing provenance audit.
+    def prose(part):
+        def replace(match):
+            ident=match[1].upper()
+            if ident not in catalog: unknown.append(ident);return match[0]
+            source=catalog[ident]
+            return '['+str(list(catalog).index(ident)+1)+'](<'+source['url']+'>)'
+        return re.sub(r'\[(S[0-9A-F]{12}|S[1-9]\d*)\](?!\()',replace,part,flags=re.I)
+    parts=re.split(r'(```[\s\S]*?```|`[^`\n]*`)',text)
+    return ''.join(part if i%2 else prose(part) for i,part in enumerate(parts)),list(dict.fromkeys(unknown))
+
+
 def check_citations(text, sources):
     # Exclude API/code examples. This is a provenance check of visible links,
     # not a claim that the sentences are entailed by the retrieved passages.
