@@ -6,6 +6,13 @@ import sys
 
 
 def main():
+    if '--standby' in sys.argv:
+        # Imports/transport initialization only. No model call or user task runs
+        # until stdin supplies one request; this process exits after that request.
+        from . import collaboration_worker, project_workspace, local_sources, web_search, web_sources
+        from .model_network import http_client
+        with http_client(5):pass
+        sys.stdout.write(json.dumps(dict(kind='standby_ready'))+'\n');sys.stdout.flush()
     request = json.loads(sys.stdin.readline())
     from .agent_debug import install
     install({"task_id": request.get("task_id", ""), "session": request["session_id"], "channel": request.get("channel", "desktop")})

@@ -349,6 +349,8 @@ def summarize(day, cfg, candidates, emit):
     from .model_catalog import require_active
     model = require_active()
     llm = LLM(api_key=model["api_key"], base_url=model["base_url"], model=model["model"])
+    from .model_catalog import bind_llm
+    bind_llm(llm, model)
     llm.client = llm.client.with_options(timeout=120, max_retries=0)
     llm.sampling = {"reasoning_effort": "low", "temperature": .2, "top_p": 1}
     messages = [{"role": "system", "content":

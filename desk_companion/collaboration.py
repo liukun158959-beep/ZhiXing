@@ -155,7 +155,7 @@ class Collaboration:
         self.stop = threading.Event()
         self.managers = managers or {
             "work": TaskManager(path=self.path.parent / "work" / "tasks.sqlite3"),
-            "chat": TaskManager(path=self.path.parent / "chat" / "tasks.sqlite3"),
+            "chat": TaskManager(path=self.path.parent / "chat" / "tasks.sqlite3",prewarm=1),
         }
         # A separate single-slot chat queue remains available during two long jobs.
         self.managers["work"].settings["parallel"] = 2

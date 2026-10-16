@@ -149,10 +149,12 @@ def delete_entry(model_id: str) -> dict:
 
 
 def bind_llm(llm, item: dict) -> None:
-    from openai import OpenAI
+    from .model_network import openai_client
 
     llm.model = item["model"]
-    llm.client = OpenAI(api_key=item["api_key"], base_url=item["base_url"])
+    previous = llm.client
+    llm.client = openai_client(api_key=item["api_key"], base_url=item["base_url"])
+    if callable(getattr(previous, 'close', None)): previous.close()
 
 
 def _seed_from_env() -> dict:

@@ -9,10 +9,12 @@ import unittest
 from unittest.mock import patch
 from desk_companion.tasks import TaskManager
 
-WORKER = '''import json,sys,time
+WORKER = '''import json,sys,time,os
+if '--standby' in sys.argv: print(json.dumps(dict(kind='standby_ready')),flush=True)
 r=json.loads(sys.stdin.readline())
 def emit(k,d):
  print(json.dumps(dict(kind=k,data=d)),flush=True)
+if '--standby' in sys.argv: emit('standby_identity',os.getpid())
 emit('token','保留片段')
 if r['text']=='timeout':
  emit('llm_start',{})
@@ -43,6 +45,36 @@ emit('result',r['text'])
 
 
 class TaskTests(unittest.TestCase):
+    def test_failed_standby_falls_back_to_a_cold_worker(self):
+        self.manager.shutdown()
+        self.worker.write_text(WORKER.replace("if '--standby' in sys.argv: print(json.dumps(dict(kind='standby_ready')),flush=True)","if '--standby' in sys.argv: sys.exit(1)"),encoding='utf-8')
+        self.manager=TaskManager(path=self.manager.path,command=[sys.executable,'-u',str(self.worker)],prewarm=1)
+        self.assertFalse(self.manager.standby.wait_ready(.3))
+        task=self.manager.wait(self.manager.submit('cold fallback','fallback'))
+        self.assertEqual(task['state'],'succeeded')
+        self.assertFalse(next(e['data']['prewarmed'] for e in task['events'] if e['kind']=='worker_pool'))
+
+    def test_standby_processes_are_one_shot_cancellable_and_stopped_on_shutdown(self):
+        self.manager.shutdown()
+        self.manager=TaskManager(path=self.manager.path,command=[sys.executable,'-u',str(self.worker)],prewarm=1)
+        self.assertTrue(self.manager.standby.wait_ready(5))
+        first=self.manager.wait(self.manager.submit('first','one'))
+        self.assertTrue(next(e['data']['prewarmed'] for e in first['events'] if e['kind']=='worker_pool'))
+        self.assertTrue(self.manager.standby.wait_ready(5))
+        second=self.manager.wait(self.manager.submit('second','two'))
+        identity=lambda task:next(e['data'] for e in task['events'] if e['kind']=='standby_identity')
+        self.assertNotEqual(identity(first),identity(second))
+        self.assertEqual(second['answer'],'second')
+        self.assertTrue(self.manager.standby.wait_ready(5))
+        task=self.manager.submit('timeout','cancel-warm')
+        deadline=time.monotonic()+3
+        while not self.manager.get(task)['answer'] and time.monotonic()<deadline:time.sleep(.02)
+        self.manager.cancel(task);self.assertEqual(self.manager.wait(task)['state'],'cancelled')
+        self.assertTrue(self.manager.standby.wait_ready(5))
+        workers=[item[0] for item in self.manager.standby.owned.values() if item]
+        self.manager.shutdown()
+        self.assertTrue(all(p.poll() is not None for p in workers))
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {"DESK_COMPANION_DATA_DIR": self.temp.name})

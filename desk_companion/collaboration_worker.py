@@ -22,6 +22,12 @@ def execute(request, emit, llm=None, search=None, fetch=None):
     if write_capable and not cfg.get('primary'): raise PublicFailure('请先在工作目录中配置主目录，并开启需要的编辑或命令权限。')
     scope = project.lease(cfg['primary']) if write_capable else nullcontext()
     with scope:
+        if llm is None:
+            from .collaboration_llm import CollaborationLLM
+            from .model_catalog import require_item
+            from .sampling import parse_sampling
+            with CollaborationLLM(require_item(request['model_id']), parse_sampling(request.get('sampling')), request['limits']['call_timeout']) as owned:
+                return _execute(request, emit, owned, search, fetch)
         return _execute(request, emit, llm, search, fetch)
 
 
@@ -29,9 +35,6 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
     from .model_catalog import require_item
     from .sampling import parse_sampling
     model = require_item(request["model_id"])
-    if llm is None:
-        from .collaboration_llm import CollaborationLLM
-        llm = CollaborationLLM(model, parse_sampling(request.get("sampling")), request["limits"]["call_timeout"])
     llm.on_reasoning = lambda piece: emit("llm_progress", True) if piece else None
     role, kind = request["role"], request["kind"]
     prompt = (f"你是 {role['name']}。tebb 中的协作伙伴。职责：{role['role']}。默认中文，自然简洁，不使用固定称呼或重复自我介绍，不输出内部推理。"

@@ -121,3 +121,29 @@ test('floating @ and / select authorized members and skills, and pin changes ref
   assert(text(view.root.findByProps({role:'alert'})).includes('pin failed'));
   await act(async()=>view.unmount());
 });
+
+test('floating toolbar creates a new conversation without cancelling work, preserves draft, and deduplicates a retry',async()=>{
+  const bus=new EventTarget();bus.setInterval=()=>1;bus.clearInterval=()=>{};global.window=bus;
+  const calls=[];let failed=true;
+  let state={revision:1,selected:'old',agents:[{id:'tebb',name:'小缇'}],conversations:[{id:'old',title:'旧对话',coordinator:'tebb'}],messages:[],runs:[],models:[]};
+  const {PetChat}=load('pet-chat',{
+    './composer-picker':load('composer-picker'),'./api':{rpc:async(_i,method,args)=>{
+      if(method==='load_task_progress')return {enabled:true};
+      if(method==='collaboration_action'){
+        calls.push(args.action);
+        if(args.action.type==='new_chat'){if(failed){failed=false;throw Error('reply lost');}state={...state,revision:2,selected:'fresh',conversations:[...state.conversations,{id:'fresh',title:'新对话',coordinator:'tebb'}]};}
+      }return {state};}},
+    './chat-prototype-state':{runActive:()=>false,RUN_LABELS:{}},'./stream-text':{StreamText:()=>null},'./companion-ui':load('companion-ui'),
+    '@tauri-apps/api/core':{isTauri:()=>false,invoke:async()=>{}},'@tauri-apps/api/event':{listen:async()=>()=>{}}
+  });let view;await act(async()=>{view=create(React.createElement(PetChat,{backend:{port:1,token:'test'}}));});
+  const input=()=>view.root.findByProps({'aria-label':'浮动聊天消息'});
+  await act(async()=>input().props.onChange({target:{value:'保留旧草稿',selectionStart:5}}));
+  const toolbar=view.root.findByProps({role:'toolbar'});assert.equal(toolbar.findAllByType('button').length,4);
+  assert(toolbar.findAllByType('button').every(button=>button.findAllByType('svg').length===1));
+  await act(async()=>view.root.findByProps({'aria-label':'创建新对话'}).props.onClick());
+  await act(async()=>view.root.findByProps({'aria-label':'创建新对话'}).props.onClick());
+  assert.equal(calls[0].request_id,calls[1].request_id);assert.equal(calls[0].agent_id,'tebb');
+  assert.equal(view.root.findByProps({'aria-label':'当前会话'}).props.value,'fresh');assert.equal(input().props.value,'');
+  await act(async()=>view.root.findByProps({'aria-label':'当前会话'}).props.onChange({target:{value:'old'}}));
+  assert.equal(input().props.value,'保留旧草稿');assert(!calls.some(a=>a.type==='cancel'));await act(async()=>view.unmount());
+});

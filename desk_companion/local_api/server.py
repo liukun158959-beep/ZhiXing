@@ -37,6 +37,7 @@ RPC_METHODS = frozenset({
     "load_board", "delete_agenda", "delete_task", "create_agenda", "load_log_errors", "load_skills",
     "load_persona", "save_persona",
     "load_model", "save_model", "test_model",
+    "load_model_network", "save_model_network",
     "load_models", "save_model_entry", "delete_model_entry", "use_model",
     "load_usage", "load_chat_log", "load_memory", "compress_context",
     "add_fact", "update_fact", "delete_fact", "delete_memory_turn",
@@ -172,6 +173,7 @@ def _dispatch(method: str, args: dict, preview=False) -> dict:
                 return target(**kwargs)
         if method.startswith("terminal_") or method in {"load_collaboration", "collaboration_action", "project_workspace", "check_updates", "list_agent_tasks", "get_agent_task", "cancel_agent_task", "continue_agent_task", "save_agent_task_settings", "load_task_progress",
                       "list_debug_calls", "get_debug_call", "set_debug_recording", "explain_debug_call",
+                      "load_model_network", "save_model_network",
                       "load_video_settings", "save_video_settings", "list_task_videos", "export_task_video",
                       "load_wiki_connection", "save_wiki_connection",
                       "load_news", "save_news_settings", "check_news_targets", "run_news",

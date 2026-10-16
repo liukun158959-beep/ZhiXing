@@ -15,6 +15,8 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
   const [menu, setMenu] = useState<{x:number;y:number} | null>(null), [progress, setProgress] = useState<Progress | null>(null);
   const [model, setModel] = useState(''), [pollError, setPollError] = useState('');
   const [pinned,setPinned]=useState(false),[pinBusy,setPinBusy]=useState(false);
+  const [creating,setCreating]=useState(false);
+  const newRequest=useRef<{id:string;agent:string} | null>(null);
   const [cursor,setCursor]=useState(0),[pickerIndex,setPickerIndex]=useState(0),[dismissed,setDismissed]=useState(false);
   const [skillMap,setSkillMap]=useState<Record<string,string[]>>({});
   const input=useRef<HTMLTextAreaElement>(null);
@@ -67,6 +69,17 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
   }
   function insertTrigger(value:string) {const start=input.current?.selectionStart ?? draft.length;const end=input.current?.selectionEnd ?? start;const spacer=start && !/\s$/.test(draft.slice(0,start))?' ':'';changeDraft(draft.slice(0,start)+spacer+value+draft.slice(end),start+spacer.length+1);input.current?.focus();}
   async function togglePin(){if(pinBusy)return;setPinBusy(true);try{const value=await invoke<boolean>('set_pet_chat_pinned',{pinned:!pinned});setPinned(value);}catch(e){setError(String(e));}finally{setPinBusy(false);}}
+  async function newChat(){
+    if(!info || creating || busy)return;
+    setCreating(true);setError('');const agent=current?.coordinator || 'tebb';
+    if(!newRequest.current || newRequest.current.agent!==agent)newRequest.current={id:crypto.randomUUID(),agent};
+    try {
+      const result=await rpc<{state:DemoState}>(info,'collaboration_action',{action:{type:'new_chat',agent_id:agent,request_id:newRequest.current.id}});
+      if(!alive.current)return;
+      accept(result.state);setConversation(result.state.selected);setModel('');setDismissed(true);following.current=true;newRequest.current=null;
+    }catch(e){if(alive.current)setError(String(e)+'；重试将沿用新对话编号。');}
+    finally{if(alive.current)setCreating(false);}
+  }
   async function close() { setMenu(null); await invoke('set_pet_chat_visible', { visible: false }).catch(e => setError(String(e))); }
   async function openMain() {
     try { if(info && cid) await rpc(info,'collaboration_action',{action:{type:'select',id:cid,conversation:cid,request_id:crypto.randomUUID()}});await invoke('show_main'); } catch(e) {setError(String(e));}
@@ -93,7 +106,7 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
     catch(e) { setError(String(e)); }
   }
   return <main className="pet-chat-window" onContextMenu={event => { if ((event.target as HTMLElement).closest('input,textarea')) return; event.preventDefault(); setMenu({x:Math.max(8,Math.min(event.clientX,window.innerWidth-160)), y:Math.max(8,Math.min(event.clientY,window.innerHeight-76))}); }}>
-    <header className="pet-chat-title" data-tauri-drag-region><strong data-tauri-drag-region>tebb.</strong><span data-tauri-drag-region>{active.length ? '正在执行' : '随时聊聊'}</span><button type="button" className="pet-chat-pin" aria-label={pinned?'取消置顶':'置顶对话框'} title={pinned?'取消置顶：点击其他界面时收起':'置顶：点击其他界面时保持显示'} aria-pressed={pinned} disabled={pinBusy} onClick={()=>void togglePin()}><AppIcon name="pin" /></button><button title="在主窗口打开" aria-label="在主窗口打开" onClick={() => void openMain()}>↗</button><button aria-label="关闭对话框" title="关闭，任务继续执行" onClick={() => void close()}>×</button></header>
+    <header className="pet-chat-title" data-tauri-drag-region><strong data-tauri-drag-region>tebb.</strong><span data-tauri-drag-region>{active.length ? '正在执行' : '随时聊聊'}</span><div className="pet-chat-window-actions" role="toolbar" aria-label="浮动聊天窗口操作"><button type="button" aria-label="创建新对话" title="创建新对话，保留当前任务和草稿" disabled={!info || creating || busy} onClick={()=>void newChat()}><AppIcon name="new_chat" /></button><button type="button" className="pet-chat-pin" aria-label={pinned?'取消置顶':'置顶对话框'} title={pinned?'取消置顶：点击其他界面时收起':'置顶：点击其他界面时保持显示'} aria-pressed={pinned} disabled={pinBusy} onClick={()=>void togglePin()}><AppIcon name="pin" /></button><button type="button" title="在主窗口打开" aria-label="在主窗口打开" onClick={() => void openMain()}><AppIcon name="expand" /></button><button type="button" aria-label="关闭对话框" title="关闭，任务继续执行" onClick={() => void close()}><AppIcon name="close" /></button></div></header>
     <div className="pet-chat-controls"><select aria-label="当前会话" value={cid} onChange={e => { setConversation(e.target.value); setModel(''); following.current = true; }}>{state?.conversations.map(c => <option value={c.id} key={c.id}>{c.title}</option>)}</select><select aria-label="本轮模型" value={model} onChange={e => setModel(e.target.value)}><option value="">默认模型</option>{state?.models?.map(m => <option key={m.id} value={m.id}>{m.model}</option>)}</select></div>
     <div className="pet-chat-scroll" ref={scroller} onScroll={e => { const el=e.currentTarget; following.current = el.scrollHeight-el.scrollTop-el.clientHeight < 40; }} aria-label="聊天与任务过程">
       {!state && <p className="pet-chat-placeholder">正在连接当前会话…</p>}

@@ -27,6 +27,7 @@ pillow==12.3.0
 psutil==7.2.2
 pip==26.0.1
 proxy_tools==0.1.0
+socksio==1.0.0
 pycparser==3.0
 pydantic==2.13.5
 pydantic_core==2.46.5

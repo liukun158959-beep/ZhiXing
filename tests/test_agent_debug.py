@@ -80,6 +80,14 @@ class DebugTests(unittest.TestCase):
             client.post('https://example.invalid/chat/completions', json={"model": "test", "messages": []})
         self.assertEqual(debug.listing()["items"], [])
 
+    def test_rejected_stream_is_a_failure_and_does_not_look_like_user_cancellation(self):
+        def handle(req):return httpx.Response(429,stream=Stream(b'{"error":"rate limited"}'))
+        with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+            with client.stream('POST','https://example.invalid/v1/chat/completions',json={'model':'test','messages':[]}) as response:
+                with self.assertRaises(httpx.HTTPStatusError):response.raise_for_status()
+        row=debug.listing()['items'][0]
+        self.assertEqual(row['state'],'failed');self.assertEqual(row['status'],429)
+
     def test_interruption_records_partial_return_and_dead_worker_is_marked(self):
         def handle(req): return httpx.Response(200, headers={"Content-Type": "text/event-stream"}, stream=Stream(b'data: {"choices":[]}\n\n'))
         with httpx.Client(transport=httpx.MockTransport(handle)) as client:
@@ -126,10 +134,9 @@ class DebugTests(unittest.TestCase):
         with httpx.Client(transport=httpx.MockTransport(handle)) as transport:
             def make_llm(**kwargs):
                 llm = LLM(**kwargs)
-                llm.client = OpenAI(api_key='test', base_url='https://example.invalid/v1', http_client=transport, max_retries=0)
                 return llm
             emitted = []
-            with patch('atlas.LLM', side_effect=make_llm), patch('desk_companion.model_catalog.require_active', return_value={
+            with patch('desk_companion.model_network.openai_client',side_effect=lambda **kw:OpenAI(api_key='test',base_url='https://example.invalid/v1',http_client=transport,max_retries=0)), patch('atlas.LLM', side_effect=make_llm), patch('desk_companion.model_catalog.require_active', return_value={
                     'model': 'test', 'api_key': 'test', 'base_url': 'https://example.invalid/v1'}):
                 debug.execute_explanation({'debug_call_id': source_id, 'text': '解读', 'limits': {'call_timeout': 30},
                     'sampling': {'reasoning_effort': 'low', 'temperature': .5, 'top_p': 1}}, lambda k,d: emitted.append((k,d)))

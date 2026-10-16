@@ -2,11 +2,13 @@
 import ctypes
 import os
 import subprocess
+import threading
 
 
 class ProcessTree:
     def __init__(self, process):
         self.process = process
+        self._close_lock = threading.Lock()
         self.job = None
         if os.name == "nt":
             from ctypes import wintypes as w
@@ -41,6 +43,10 @@ class ProcessTree:
             self.job = job
 
     def close(self):
+        with self._close_lock:
+            self._close()
+
+    def _close(self):
         if self.job:
             self.dll.CloseHandle(self.job)
             self.job = None

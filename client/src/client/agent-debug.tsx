@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { rpc, type BackendInfo } from "./api";
 import { Markdown } from "./Markdown";
+import { PerformanceView, PerformanceStats, duration, type PerformanceSummary, type CallTiming, type TaskTiming } from './performance-view';
 
 type Obj = Record<string, unknown>;
 export type DebugCall = { id: string; created: number; updated: number; task_id: string; session: string; channel: string;
   model: string; endpoint: string; state: string; status: number; duration_ms: number; first_byte_ms: number; request_bytes: number; response_bytes?: number; error: string };
-export type DebugDetail = { call: DebugCall; request: Obj; request_raw: string; response: Obj; response_raw: string };
+export type DebugDetail = { call: DebugCall; request: Obj; request_raw: string; response: Obj; response_raw: string; task?:Task|null;timing?:CallTiming|null;chain?:TaskTiming|null };
 type Task = { id: string; state: string; text: string; answer: string; error: string; events?: { seq: number; ts: number; kind: string; data: unknown }[] };
-const STATE: Record<string, string> = { sending: "发送中", receiving: "接收中", complete: "已返回", failed: "失败", interrupted: "中断", recording_failed: "记录失败" };
-const CHANNEL: Record<string, string> = { desktop: "桌面对话", feishu: "飞书", video: "视频", automation: "定时任务", debug: "调用解读", notebook: "笔记问答", backend: "其它调用" };
+const STATE: Record<string, string> = { sending: "发送中", receiving: "接收中", complete: "已返回", failed: "失败", timed_out:"超时",cancelled:"已取消", interrupted: "中断", recording_failed: "记录失败" };
+const CHANNEL: Record<string, string> = { collaboration:'伙伴聊天', desktop: "桌面对话", feishu: "飞书", video: "视频", automation: "定时任务", debug: "调用解读", notebook: "笔记问答", backend: "其它调用" };
 const pretty = (value: unknown) => typeof value === "string" ? value : JSON.stringify(value, null, 2) || "";
 const active = (state: string) => ["sending", "receiving", "running", "queued", "cancelling"].includes(state);
 const messages = (request: Obj): Obj[] => Array.isArray(request.messages) ? request.messages as Obj[] : [];
@@ -71,7 +72,8 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
   const [enabled, setEnabled] = useState(true);
   const [more, setMore] = useState(false);
   const [older, setOlder] = useState<DebugCall[]>([]);
-  const [tab, setTab] = useState<"messages" | "raw" | "diff" | "tools" | "explain">("messages");
+  const [tab, setTab] = useState<"messages" | "raw" | "diff" | "tools" | "explain" | "performance">("messages");
+  const [performance,setPerformance]=useState<PerformanceSummary|null>(null);
   const [previous, setPrevious] = useState<DebugDetail | null>(null);
   const [task, setTask] = useState<Task | null>(null);
   const [explanation, setExplanation] = useState<Task | null>(null);
@@ -94,9 +96,10 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
       if (loading) return;
       loading = true;
       try {
-        const page = await rpc<{ items: DebugCall[]; has_more: boolean; settings: { enabled: boolean } }>(info!, "list_debug_calls", { channel });
+        const page = await rpc<{ items: DebugCall[]; has_more: boolean; settings: { enabled: boolean };performance?:PerformanceSummary }>(info!, "list_debug_calls", { channel });
         if (!live) return;
         setCalls(page.items); if (!olderRef.current.length) setMore(page.has_more); setEnabled(page.settings.enabled);
+        setPerformance(page.performance || null);
         if (!selectedRef.current && page.items[0]) select(page.items[0].id);
       } catch (err) { if (live) setError(String(err)); }
       finally { loading = false; }
@@ -107,16 +110,15 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
   useEffect(() => {
     if (!info || debug || !selected) return;
     let live = true, loading = false, terminal = false;
-    let stable: DebugDetail | null = null;
     async function refresh() {
       if (loading || terminal) return;
       loading = true;
       try {
-        const found = stable && !active(stable.call.state) ? stable : await rpc<DebugDetail>(info!, "get_debug_call", { call_id: selected });
+        const found = await rpc<DebugDetail>(info!, "get_debug_call", { call_id: selected });
         if (!live) return;
-        stable = found;
         setDetail(found);
-        if (found.call.task_id) {
+        if ('task' in found) {setTask(found.task || null);terminal=!active(found.call.state)&&(!found.task || !active(found.task.state));}
+        else if (found.call.task_id && found.call.channel!=='collaboration') {
           const page = await rpc<{ task: Task }>(info!, "get_agent_task", { task_id: found.call.task_id, focus: false });
           if (live) setTask(page.task);
           terminal = !active(found.call.state) && !active(page.task.state);
@@ -175,7 +177,7 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
   const delta = previous && detail ? requestDiff(previous.request, detail.request) : null;
   const usage = detail?.response.usage as Obj | undefined;
   const responses = (detail?.response.choices as { message?: Obj }[] | undefined)?.map(c => c.message || {}) || [];
-  const tabs = { messages: "消息", raw: "原始载荷", diff: "请求差异", tools: "工具与时间线", explain: "协助解读" } as const;
+  const tabs = { messages: "消息", performance:"耗时分析", raw: "原始载荷", diff: "请求差异", tools: "工具与时间线", explain: "协助解读" } as const;
   return <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm" data-agent-debug
     onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
     <section ref={dialog} role="dialog" aria-modal="true" aria-labelledby="agent-debug-title"
@@ -195,6 +197,7 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
           <button className="desk-btn" aria-label="关闭 Agent 调试" onClick={onClose}>关闭</button>
         </div>
       </header>
+      {performance&&<PerformanceStats value={performance}/>}
       <div className="flex min-h-0 flex-1 flex-col md:flex-row">
         <aside className="flex max-h-48 w-full shrink-0 flex-col border-b border-border bg-card/35 p-3 md:max-h-none md:w-64 md:border-b-0 md:border-r">
           <label className="text-xs text-muted-foreground">调用来源<select aria-label="调用来源" className="mt-2 w-full rounded border border-border bg-background p-2 text-foreground" value={channel}
@@ -220,7 +223,7 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
               <p className="truncate text-xs text-muted-foreground" title={detail.call.endpoint}>{detail.call.endpoint}</p>
               {task && <p className="mt-2 line-clamp-2 text-sm">{task.text}</p>}
               <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs"><span className={detail.call.state === "failed" ? "text-destructive" : "text-primary"}>{STATE[detail.call.state]}</span><span>HTTP {detail.call.status || (active(detail.call.state) ? "等待" : "未收到响应")}</span>
-                <span>耗时 {(detail.call.duration_ms / 1000).toFixed(2)}s</span><span>首字节 {detail.call.first_byte_ms}ms</span>
+                <span>耗时 {(detail.call.duration_ms / 1000).toFixed(2)}s</span><span>响应体首字节 {detail.timing ? duration(detail.timing.marks.first_body) : detail.call.first_byte_ms ? `${detail.call.first_byte_ms}ms` : '未测得'}</span>
                 <span>{messages(detail.request).length} 条消息</span><span>输入 {usage?.prompt_tokens !== undefined ? String(usage.prompt_tokens) : "—"} / 输出 {usage?.completion_tokens !== undefined ? String(usage.completion_tokens) : "—"} Token</span>
               </div>
               {detail.call.error && <p role="alert" className="mt-2 text-xs text-destructive">{detail.call.error}</p>}
@@ -230,6 +233,7 @@ export function AgentDebugDialog({ info, onClose, debug = false }: { info: Backe
                 className={`border-b-2 px-3 py-3 text-xs ${tab === k ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>{v}</button>)}
             </nav>
             <div className="min-h-0 flex-1 overflow-auto p-5">
+              {tab==='performance'&&<PerformanceView timing={detail.timing} chain={detail.chain}/>}
               {tab === "messages" && <div className="grid gap-5 xl:grid-cols-2">
                 <div><h2 className="mb-3 text-sm font-medium">Agent → LLM</h2><MessageCards key={selected + "in"} rows={messages(detail.request)} />
                   <details className="mt-3"><summary className="cursor-pointer text-xs text-primary">工具定义与其它请求参数（全量）</summary><div className="mt-3"><Json value={Object.fromEntries(Object.entries(detail.request).filter(([k]) => k !== "messages"))} /></div></details>

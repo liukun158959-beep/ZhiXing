@@ -18,7 +18,7 @@ DEFAULTS = {"parallel": 2, "call_timeout": 90, "task_timeout": 300, "pet_progres
 
 
 class TaskManager:
-    def __init__(self, host=None, path=None, command=None):
+    def __init__(self, host=None, path=None, command=None, prewarm=0):
         self.host = host
         self.path = Path(path or data_root() / "memory" / "tasks.sqlite3")
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -38,7 +38,16 @@ class TaskManager:
                        "WHERE state IN ('queued','running','cancelling')", (time.time(),))
             db.commit()
         self.scheduler = threading.Thread(target=self._schedule, daemon=True)
+        self.standby=None
+        if prewarm:
+            from .task_warmup import WorkerStandby
+            self.standby=WorkerStandby(lambda:self._spawn(standby=True),min(2,prewarm))
         self.scheduler.start()
+
+    def _spawn(self, standby=False):
+        return subprocess.Popen(self.command+(['--standby'] if standby else []), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            text=True,encoding='utf-8',errors='replace',cwd=str(Path(__file__).resolve().parents[1]),
+            env={**os.environ,'PYTHONIOENCODING':'utf-8'},creationflags=0x08000000 if os.name=='nt' else 0)
 
     def db(self):
         db = sqlite3.connect(self.path, timeout=15)
@@ -215,10 +224,10 @@ class TaskManager:
         outcome = {}
         try:
             self.event(task_id, "status", "正在整理上下文，准备调用模型。")
-            process = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                                       text=True, encoding="utf-8", errors="replace", cwd=str(Path(__file__).resolve().parents[1]),
-                                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}, creationflags=0x08000000 if os.name == "nt" else 0)
-            tree = ProcessTree(process)
+            spare=self.standby.take() if self.standby else None
+            if spare:process,tree=spare
+            else:process=self._spawn();tree=ProcessTree(process)
+            self.event(task_id,'worker_pool',dict(prewarmed=bool(spare)))
             # worker 初始化前挂入 Job；从此包括工具子进程在内都能及时停止。
             process.stdin.write(json.dumps(request) + "\n")
             process.stdin.flush()
@@ -355,3 +364,4 @@ class TaskManager:
             while self.active and time.monotonic() < deadline:
                 self.cv.wait(.05)
         self.scheduler.join(1)
+        if self.standby:self.standby.shutdown()

@@ -486,7 +486,7 @@ class PreviewRpcTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self):
                 from types import SimpleNamespace
                 self.request = SimpleNamespace(path="/collaboration?token="+"x"*48, headers={"Origin":"http://127.0.0.1:5180"})
-                self.messages = iter([dict(type="rpc",method="terminal_start",args={}), dict(type="chat",text="bad"), dict(type="rpc",method="load_collaboration")]); self.replies=[]
+                self.messages = iter([dict(type="rpc",method="terminal_start",args={}),dict(type='rpc',method='load_model_network'),dict(type='rpc',method='save_model_network',args={'payload':{'mode':'direct'}}), dict(type="chat",text="bad"), dict(type="rpc",method="load_collaboration")]); self.replies=[]
             def __aiter__(self): return self
             async def __anext__(self):
                 try: return json.dumps(next(self.messages))
@@ -497,7 +497,7 @@ class PreviewRpcTests(unittest.IsolatedAsyncioTestCase):
         with patch("desk_companion.collaboration_access.preview_allowed", return_value=True), patch.object(server,"_dispatch",return_value=dict(ok=True,result={})) as dispatch:
             await server._handler(socket)
         self.assertEqual(dispatch.call_count,1);self.assertEqual(dispatch.call_args.args[0],"load_collaboration")
-        self.assertEqual([reply["type"] for reply in socket.replies],["error","error","rpc_result"])
+        self.assertEqual([reply["type"] for reply in socket.replies],["error","error","error","error","rpc_result"])
 
 
 if __name__ == "__main__": unittest.main()

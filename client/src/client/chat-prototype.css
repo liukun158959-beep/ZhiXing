@@ -464,7 +464,12 @@
 .pet-chat-title { display:flex; align-items:center; gap:10px; padding:10px 12px; height:44px; flex-shrink:0; border-bottom:1px solid hsl(var(--border)); background:hsl(var(--card)); user-select:none; }
 .pet-chat-title strong { font-size:18px; letter-spacing:-1px; }
 .pet-chat-title span { flex:1; font-size:11px; color:hsl(var(--muted-foreground)); }
-.pet-chat-title button { width:24px; height:24px; font-size:19px; }
+.pet-chat-title .pet-chat-window-actions { display:flex; align-items:center; gap:3px; flex-shrink:0; }
+.pet-chat-title .pet-chat-window-actions button { display:grid; place-items:center; width:28px; height:28px; padding:0; margin:0; border:0; border-radius:6px; background:transparent; line-height:1; flex-shrink:0; }
+.pet-chat-window-actions button svg { display:block; width:18px; height:18px; }
+.pet-chat-window-actions button:hover { background:hsl(var(--primary) / .08); }
+.pet-chat-window-actions button:focus-visible { outline:2px solid hsl(var(--primary)); outline-offset:1px; }
+.pet-chat-window-actions button:disabled { opacity:.45; cursor:default; }
 .pet-chat-controls { display:flex; gap:8px; padding:6px 10px; border-bottom:1px solid hsl(var(--border)); }
 .pet-chat-controls select { flex:1; min-width:0; max-width:60%; background:hsl(var(--card)); font-size:11px; padding:4px; }
 .pet-chat-scroll { flex:1; min-height:0; overflow-y:auto; padding:12px; scrollbar-gutter:stable; }

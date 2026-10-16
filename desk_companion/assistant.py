@@ -181,6 +181,8 @@ def build_agent(host):
         max_steps=state.max_steps,
     )
     from .video_context import VideoContextCompactManager
+    from .model_catalog import bind_llm
+    bind_llm(agent.llm, dict(api_key=cfg['ATLAS_API_KEY'],base_url=cfg['ATLAS_BASE_URL'],model=cfg['ATLAS_MODEL']))
 
     agent.compact_manager = VideoContextCompactManager(llm=agent.llm)
     agent.runtime.compact = agent.compact_manager

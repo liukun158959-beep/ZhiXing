@@ -26,6 +26,9 @@ export function CompanionAvatar({ agent, group = false }: { agent?: DemoAgent; g
 }
 
 const ICON_PATHS: Record<string, ReactNode> = {
+  new_chat: <><rect x="4" y="4" width="16" height="16" rx="3" /><path d="M12 8v8m-4-4h8" /></>,
+  expand: <><path d="M14 4h6v6m0-6L10 14M9 4H4v16h16v-5" /></>,
+  close: <path d="m6 6 12 12M18 6 6 18" />,
   pin: <><path d="M8 3h8M9 3v7l-3 4v2h12v-2l-3-4V3M12 16v5" /></>,
   tasks: <><rect x="5" y="4" width="14" height="17" rx="3" /><path d="m8 11 2 2 5-5M9 17h6" /></>,
   members: <><circle cx="9" cy="8" r="4" /><path d="M2 21v-3a7 7 0 0 1 14 0v3m1-17a4 4 0 0 1 0 8m2 2q4 1 4 7" /></>,

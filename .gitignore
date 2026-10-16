@@ -13,6 +13,7 @@ skins/**
 !skins/.gitkeep
 user_state.json
 models.json
+model-network.json
 onboarding.json
 feishu_agent.json
 news_settings.json

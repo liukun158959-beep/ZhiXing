@@ -10,6 +10,14 @@ SAMPLING = dict(reasoning_effort='low', temperature=.5, top_p=1)
 
 
 class StreamingTests(unittest.TestCase):
+    def test_owned_transport_is_reused_only_within_one_worker_and_closed(self):
+        from unittest.mock import patch
+        client=httpx.Client(transport=httpx.MockTransport(lambda r:httpx.Response(200,text='data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')))
+        with patch('desk_companion.model_network.http_client',return_value=client) as make:
+            with CollaborationLLM(MODEL,SAMPLING,20) as llm:
+                llm.chat([]);llm.chat([]);make.assert_called_once()
+            self.assertTrue(client.is_closed)
+
     def llm(self, handler):
         client = httpx.Client(transport=httpx.MockTransport(handler))
         self.addCleanup(client.close)

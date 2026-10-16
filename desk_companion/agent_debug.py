@@ -103,27 +103,50 @@ def install(default=None):
 
     def send(client, request, *args, **kwargs):
         call_id = None
+        timing = None
+        buffer = b''
         started = time.monotonic()
         try:
             payload = json.loads(request.content)
             if request.method == "POST" and isinstance(payload, dict) and payload.get("model") and (
                     isinstance(payload.get("messages"), list) or ("input" in payload and request.url.path.endswith("/responses"))) and settings()["enabled"]:
                 call_id = begin(request, payload)
+                from .performance import HttpTiming
+                timing = HttpTiming()
+                previous_trace = request.extensions.get('trace')
+                def trace(name, info):
+                    timing.trace(name, info)
+                    if name.endswith(('.started','.complete','.failed')) and any(p in name for p in ('connect_tcp','start_tls','receive_response_headers')):
+                        save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
+                    if previous_trace: previous_trace(name, info)
+                request.extensions['trace'] = trace
         except Exception:
             pass  # 记录失败不能改变业务请求。
         try:
             response = original(client, request, *args, **kwargs)
         except Exception as exc:
             if call_id:
+                if timing: save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
                 safe_update(call_id, state="failed", error=error_name(exc), updated=time.time(),
                             duration_ms=int((time.monotonic() - started) * 1000))
             raise
-        if not call_id:
+        if not call_id or timing is None:
             return response
         first = int((time.monotonic() - started) * 1000)
+        timing.mark('headers')
+        if response.is_stream_consumed:
+            # send(stream=False) returns after consuming the body. Use the actual
+            # final header boundary, rather than labelling the whole body as TTFH.
+            header=next((s for s in reversed(timing.spans) if s['phase']=='receive_response_headers' and s['state']=='complete'),None)
+            if header:timing.marks['headers']=round(header['start_ms']+header['duration_ms'],2)
+        save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
         safe_update(call_id, state="receiving", status=response.status_code, first_byte_ms=first, updated=time.time())
         # Non-streaming bodies were already consumed by httpx.send.
         if response.is_stream_consumed:
+            try:
+                if any(c.get('message',{}).get('content') for c in response.json().get('choices',[])): timing.mark('first_text')
+            except Exception: pass
+            timing.mark('body_end');save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
             stored = safe_append(call_id, response.content)
             safe_update(call_id, state="recording_failed" if not stored else "complete" if response.is_success else "failed", updated=time.time(),
                         duration_ms=int((time.monotonic() - started) * 1000))
@@ -132,11 +155,25 @@ def install(default=None):
             iterate, close = response.iter_bytes, response.close
             state = {"finished": False, "saw_bytes": False, "done": False, "tail": b"", "lost": False}
             def tee(*a, **kw):
+                nonlocal buffer
                 try:
                     for piece in iterate(*a, **kw):
                         if not state["saw_bytes"]:
                             state["saw_bytes"] = True
                             safe_update(call_id, first_byte_ms=int((time.monotonic() - started) * 1000))
+                            timing.mark('first_body')
+                        if 'first_text' not in timing.marks:
+                            buffer += piece
+                            while (separator:=re.search(rb'\r?\n\r?\n',buffer)):
+                                block,buffer=buffer[:separator.start()],buffer[separator.end():]
+                                try:
+                                    raw=b'\n'.join(line[5:].lstrip(b' ') for line in block.splitlines() if line.startswith(b'data:'))
+                                    value=json.loads(raw)
+                                    if any(c.get('delta',{}).get('reasoning_content') for c in value.get('choices',[])): timing.mark('first_reasoning')
+                                    if any(c.get('delta',{}).get('content') for c in value.get('choices',[])) or value.get('type')=='response.output_text.delta' and value.get('delta'):
+                                        timing.mark('first_text');save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
+                                except (ValueError,TypeError,AttributeError): pass
+                            if len(buffer)>1048576: buffer=b''
                         if not safe_append(call_id, piece):
                             state["lost"] = True
                         state["tail"] = (state["tail"] + piece)[-128:]
@@ -148,18 +185,40 @@ def install(default=None):
                     safe_update(call_id, error=error_name(exc))
                     raise
                 finally:
+                    timing.mark('body_end');save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
                     safe_update(call_id, state=("recording_failed" if state["lost"] else "complete" if (state["finished"] or state["done"]) and response.is_success else "failed" if state["finished"] else "interrupted"),
                                 updated=time.time(), duration_ms=int((time.monotonic() - started) * 1000))
             def closed():
                 close()
+                timing.mark('body_end');save_timing(call_id,timing,getattr(client,'_tebb_network_mode','system'))
                 if not state["finished"]:
-                    safe_update(call_id, state="recording_failed" if state["lost"] else "complete" if state["done"] and response.is_success else "interrupted",
+                    safe_update(call_id, state="recording_failed" if state["lost"] else "complete" if state["done"] and response.is_success else "failed" if not response.is_success else "interrupted",
                                 updated=time.time(), duration_ms=int((time.monotonic() - started) * 1000))
             response.iter_bytes, response.close = tee, closed
         return response
 
     send._desk_debug = True
     httpx.Client.send = send
+
+
+def save_timing(call_id,timing,mode):
+    try:
+        target=root()/(call_id+'.timing.json');temp=target.with_suffix('.timing.tmp')
+        temp.write_text(json.dumps(timing.payload() | dict(network_mode=mode,saved_at=time.time())),encoding='utf-8')
+        os.replace(temp,target)
+    except Exception: pass
+
+
+def load_timing(call_id, live=False, ended=None):
+    try:
+        value=json.loads((root()/(call_id+'.timing.json')).read_text('utf-8'))
+        if (live or ended) and 'body_end' not in value.get('marks',{}):
+            elapsed=max(0,((time.time() if live else ended)-value.get('saved_at',time.time()))*1000)
+            value['total_ms']+=elapsed
+            for span in value.get('spans',[]):
+                if span['state']=='incomplete': span['duration_ms']+=elapsed
+        return value
+    except (OSError,ValueError): return None
 
 
 def error_name(exc):
@@ -195,7 +254,10 @@ def listing(channel="", task_id="", before=None):
     for row in rows:
         row["response_bytes"] = (root() / (row["id"] + ".response.txt")).stat().st_size
         refresh(row)
-    return {"ok": True, "items": rows[:100], "has_more": len(rows) > 100, "settings": settings()}
+        timing=load_timing(row['id'])
+        row['first_text_ms']=(timing or {}).get('marks',{}).get('first_text')
+    from .performance import summarize
+    return {"ok": True, "items": rows[:100], "has_more": len(rows) > 100, "settings": settings(), 'performance':summarize(rows[:100])}
 
 
 def refresh(row):
@@ -208,7 +270,13 @@ def refresh(row):
         live = False
     if not live:
         row["state"] = "interrupted"
-        safe_update(row["id"], state="interrupted")
+        from .performance import task_snapshot
+        task=task_snapshot(row['task_id'])
+        if task and task['ended']:
+            row['duration_ms']=max(0,int((task['ended']-row['created'])*1000));row['updated']=task['ended']
+            if task['state'] in {'timed_out','cancelled'}:row['state']=task['state']
+            if task['state']=='timed_out':row['error']='TaskTimeout'
+        safe_update(row["id"], state=row['state'],duration_ms=row['duration_ms'],updated=row['updated'],error=row['error'])
     else:
         row["duration_ms"] = int((time.time() - row["created"]) * 1000)
 
@@ -263,8 +331,11 @@ def detail(call_id):
     raw_response = (root() / (call_id + ".response.txt")).read_text("utf-8", errors="replace")
     info = dict(row)
     refresh(info)
+    from .performance import task_snapshot,task_timing
+    task=task_snapshot(info['task_id'])
     return {"ok": True, "call": info, "request": json.loads(raw_request), "request_raw": raw_request,
-            "response": decode_response(raw_response), "response_raw": raw_response}
+            "response": decode_response(raw_response), "response_raw": raw_response,
+            'timing':load_timing(call_id,info['state'] in {'sending','receiving'},info['updated']),'task':task,'chain':task_timing(task)}
 
 
 def execute_explanation(request, emit):
@@ -274,6 +345,8 @@ def execute_explanation(request, emit):
     item = detail(request["debug_call_id"])
     model = require_active()
     llm = LLM(api_key=model["api_key"], base_url=model["base_url"], model=model["model"])
+    from .model_catalog import bind_llm
+    bind_llm(llm, model)
     llm.client = llm.client.with_options(timeout=request["limits"]["call_timeout"], max_retries=0)
     llm.sampling = parse_sampling(request.get("sampling"))
     llm.on_reasoning = lambda x: emit("llm_progress", True) if x else None

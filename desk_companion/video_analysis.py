@@ -301,6 +301,8 @@ def execute(request, emit):
     else:
         model = require_item(request["model_id"]) if request.get("model_id") else require_active()
         llm = LLM(api_key=model["api_key"], base_url=model["base_url"], model=model["model"])
+        from .model_catalog import bind_llm
+        bind_llm(llm, model)
         from .state import state_path
         llm.model_prices = json.loads(state_path().read_text("utf-8")).get("model_prices", {}) if state_path().exists() else {}
         llm.client = llm.client.with_options(timeout=request["limits"]["call_timeout"], max_retries=0)

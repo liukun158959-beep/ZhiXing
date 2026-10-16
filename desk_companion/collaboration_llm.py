@@ -15,7 +15,16 @@ class CollaborationLLM:
         self.sampling = sampling
         self.timeout = timeout
         self.client = client
+        self.owned = client is None
         self.on_reasoning = None
+
+    def __enter__(self): return self
+
+    def __exit__(self, *args): self.close()
+
+    def close(self):
+        if self.owned and self.client is not None:
+            self.client.close(); self.client = None
 
     def chat(self, messages, tools=None, on_delta=None):
         payload = dict(model=self.model['model'], messages=messages, stream=True,
@@ -25,7 +34,10 @@ class CollaborationLLM:
         if tools:
             payload['tools'] = tools
         started = time.monotonic()
-        client = self.client or httpx.Client(timeout=httpx.Timeout(self.timeout, connect=min(5, self.timeout)))
+        if self.client is None:
+            from .model_network import http_client
+            self.client = http_client(self.timeout)
+        client = self.client
         pieces, calls, usage = [], {}, None
         finished = False
         try:
@@ -64,9 +76,9 @@ class CollaborationLLM:
                             finished = True
             if not finished:
                 raise RuntimeError('模型连接提前结束，未收到完成标记；部分结果已保留')
-        finally:
-            if self.client is None:
-                client.close()
+        except Exception:
+            self.close()
+            raise
         message = dict(role='assistant', content=''.join(pieces) or None)
         if calls:
             message['tool_calls'] = [calls[i] for i in sorted(calls)]

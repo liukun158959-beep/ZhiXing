@@ -31,6 +31,7 @@ import { WorkspaceRuns } from "./workspace-runs";
 import { WorkspaceRail } from "./workspace-shell";
 import { PageStack } from "./page-stack";
 import { PetSettings } from "./pet-settings";
+import { ModelNetworkSettings } from './model-network';
 import { RailButton, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
 import { TopToolbar } from "./top-toolbar";
 import { LocalSourcesDialog, type LocalSource } from "./local-sources";
@@ -2451,6 +2452,7 @@ export function App() {
             >
               <ReleaseSettings info={info} onShowIntro={releaseIntro.show} />
               <PetSettings info={info} debug={!!debugKind} />
+              <ModelNetworkSettings info={info} debug={!!debugKind} />
               <SettingsPane
                 onOpenGuide={() => {
                   if (!info) return;

@@ -459,6 +459,14 @@ class Bridge:
     def load_model(self) -> dict:
         return self._host.board_model()
 
+    def load_model_network(self) -> dict:
+        from .model_network import public
+        return dict(ok=True, **public())
+
+    def save_model_network(self, payload: dict) -> dict:
+        from .model_network import save
+        return save(payload)
+
     def load_models(self) -> dict:
         return self._host.board_models()
 

@@ -12,7 +12,7 @@ function load(name, mocks = {}) {
   const compiled = ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: {
     module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
   const mod = new Module(filename, module); mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
-  const original = mod.require.bind(mod); mod.require = id => mocks[id] || original(id); mod._compile(compiled, filename); return mod.exports;
+  const original = mod.require.bind(mod); mod.require = id => mocks[id] || (id==='./performance-view'?load('performance-view'):original(id)); mod._compile(compiled, filename); return mod.exports;
 }
 
 test('version opens on the fifth consecutive click, resets after an interval, and toolbar actions work', () => {
@@ -54,6 +54,32 @@ test('request comparison keeps full changed messages and tool/schema changes', (
   const after = { messages: [{ role: 'system', content: large }, { role: 'user', content: '之后' }, { role: 'tool', content: large }], tools: ['new'] };
   const diff = requestDiff(before, after);
   assert.equal(diff.changes.length, 2); assert.equal(diff.changes[1].after.content, large); assert.deepEqual(diff.keys, ['tools']);
+});
+
+test('network settings load before saving, keep proxy credentials private and allow direct mode',async()=>{
+  const calls=[];let resolveLoad;const first=new Promise(resolve=>resolveLoad=resolve);
+  const {ModelNetworkSettings}=load('model-network',{'./api':{rpc:async(_i,method,args)=>{calls.push([method,args]);if(method==='load_model_network')return first;return {...args.payload,has_password:true};}}});
+  let view;await act(async()=>{view=create(React.createElement(ModelNetworkSettings,{info:{port:1,token:'test'}}));});
+  assert.equal(view.root.findByType('fieldset').props.disabled,true);
+  await act(async()=>resolveLoad({mode:'system',proxy_url:'http://localhost:7890',username:'',has_password:true}));
+  await act(async()=>view.root.findByProps({'aria-label':'模型连接方式'}).props.onChange({target:{value:'custom'}}));
+  assert.equal(view.root.findByProps({'aria-label':'模型代理密码'}).props.value,'');
+  await act(async()=>view.root.findByProps({'aria-label':'模型代理密码'}).props.onChange({target:{value:'NEW_PROXY_SECRET'}}));
+  await act(async()=>view.root.findAllByType('button').find(b=>b.children.join('')==='保存模型网络').props.onClick());
+  assert.equal(calls.at(-1)[1].payload.password,'NEW_PROXY_SECRET');assert.equal(view.root.findByProps({'aria-label':'模型代理密码'}).props.value,'');
+  await act(async()=>view.root.findByProps({'aria-label':'模型连接方式'}).props.onChange({target:{value:'direct'}}));
+  await act(async()=>view.root.findAllByType('button').find(b=>b.children.join('')==='保存模型网络').props.onClick());
+  assert.equal(calls.at(-1)[1].payload.mode,'direct');assert.equal(calls.at(-1)[1].payload.password,'');await act(async()=>view.unmount());
+});
+
+test('timing view separates nested scopes, identifies bottleneck, and never invents first-token time',()=>{
+  const {PerformanceView,httpStages,PerformanceStats}=load('performance-view');
+  const timing={network_mode:'direct',total_ms:10000,marks:{headers:8000,first_text:9000,body_end:10000},spans:[{phase:'connect_tcp',label:'DNS / TCP',duration_ms:100,start_ms:0},{phase:'receive_response_headers',label:'等待响应头',duration_ms:7900,start_ms:100},{phase:'receive_response_body',label:'整个响应流',duration_ms:2000,start_ms:8000}]};
+  assert.equal(httpStages(timing).length,4);assert(!httpStages(timing).some(s=>s.label==='整个响应流'));
+  let view;act(()=>{view=create(React.createElement(PerformanceView,{timing,chain:{total_ms:12000,state:'succeeded',stages:[{label:'排队',duration_ms:10},{label:'模型调用 1',duration_ms:10000}]}}));});
+  assert(JSON.stringify(view.toJSON()).includes('等待响应头'));assert(JSON.stringify(view.toJSON()).includes('最耗时'));act(()=>view.unmount());
+  act(()=>{view=create(React.createElement(PerformanceStats,{value:{completed:99,failed:1,timeouts:1,failure_rate:1/99,duration_ms:{p50:100,p95:1000,p99:null},first_text_ms:{n:98}}}));});
+  assert(JSON.stringify(view.toJSON()).includes('样本不足100'));act(()=>view.unmount());
 });
 
 test('toolbar is a text menu and attachment entries remain usable during agent work', () => {
