@@ -1,6 +1,6 @@
 // Local interaction model only. No model, tool, credential, or backend imports.
 export type DemoAgent = { id: string; name: string; role: string; mark: string; tone: string; model: string; tools: string[]; memory: string; avatar?: string; personality?: string };
-export type DemoProject = { id: string; name: string };
+export type DemoProject = { id: string; name: string; primary?: string; instructions?: string; sources?: {id:string;title:string;text:string;truncated?:boolean}[] };
 export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string; legacy?: boolean; summary?: string; project_id?: string };
 export type DemoMessage = { id: string; conversation: string; sender: string; text: string; run?: string; kind?: "result" | "notice" };
 export type DemoRun = { id: string; conversation: string; agent: string; title: string; state: "running" | "waiting" | "succeeded" | "cancelled" | "pending" | "queued" | "cancelling" | "failed" | "timed_out" | "interrupted";
@@ -10,12 +10,15 @@ export type DemoRun = { id: string; conversation: string; agent: string; title: 
   citation_check?: { ok: boolean; pages_read: number; matched: { url: string; level: string; truncated: boolean }[]; unverified: string[] } };
 export type DemoRequest = { id: string; conversation: string; run: string; state: "pending" | "approved" | "rejected" };
 export type DemoState = { version: 1; next: number; selected: string; projects?: DemoProject[]; agents: DemoAgent[]; conversations: DemoConversation[]; messages: DemoMessage[];
-  runs: DemoRun[]; requests: DemoRequest[]; notice: string; companionVersion?: number; revision?: number; active_model?: string; workspace?: { primary: string }; skills?: { id: string; description: string }[]; models?: { id: string; model: string }[] };
+  runs: DemoRun[]; requests: DemoRequest[]; notice: string; companionVersion?: number; revision?: number; active_model?: string; workspace?: { primary: string; project_id?:string; revision?:string; references?:string[]; edit?:boolean; commands?:boolean }; skills?: { id: string; description: string }[]; models?: { id: string; model: string }[] };
 export type DemoAction =
   | { type: "select"; id: string }
   | { type: "send"; text: string; target: string; mode: "message" | "task" | "auto"; run?: string; skills?: string[]; attachments?: string[]; model_id?: string; sampling?: { reasoning_effort: string; temperature: number; top_p: number } }
   | { type: "create_project"; name: string }
-  | { type: "rename_project"; id: string; name: string }
+  | { type: "rename_project"; id: string; name: string; instructions?: string }
+  | { type: "open_folder_project"; primary: string; bind_id?: string }
+  | { type: "project_details"; id: string; instructions: string; remove_source?: string }
+  | { type: "migrate_projects"; token: string; ids: string[] }
   | { type: "delete_project"; id: string }
   | { type: "move_conversation"; id: string; project_id: string }
   | { type: "open_dm"; agent_id: string; project_id?: string }
@@ -79,17 +82,29 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
   const conversation = state.conversations.find(item => item.id === state.selected)!;
   const projects = state.projects ??= [];
   const projectFor = (given: string | undefined) => given ?? conversation.project_id ?? '';
-  if (action.type === "create_project" || action.type === "rename_project") {
+  if (action.type === 'open_folder_project') {
+    const primary = action.primary.replace(/\\/g,'/').replace(/\/$/,'');
+    let project = projects.find(p=>p.primary?.toLowerCase()===primary.toLowerCase()) || projects.find(p=>p.id===action.bind_id);
+    if (!project) { project={id:id(),name:primary.split('/').pop() || '项目',primary};projects.push(project); }
+    project.primary=primary;
+    let chat=state.conversations.find(c=>c.project_id===project!.id);
+    if(!chat){chat={id:id(),title:'新对话',kind:'dm',members:['tebb'],coordinator:'tebb',goal:'',project_id:project.id};state.conversations.push(chat);}
+    state.selected=chat.id;
+  } else if (action.type === 'project_details') {
+    const project=projects.find(p=>p.id===action.id);
+    if(project){project.instructions=action.instructions;if(action.remove_source)project.sources=project.sources?.filter(s=>s.id!==action.remove_source);}
+  } else if (action.type === "create_project" || action.type === "rename_project") {
     const name = action.name.trim();
     if (!name || name.length > 40 || projects.some(p => p.name.toLowerCase() === name.toLowerCase() && (action.type !== 'rename_project' || p.id !== action.id))) { state.notice = '项目名称须为1至40字，且不能重复。'; return state; }
     if (action.type === 'create_project') projects.push({ id: id(), name });
-    else { const p = projects.find(p => p.id === action.id); if (p) p.name = name; }
+    else { const p = projects.find(p => p.id === action.id); if (p) {p.name = name;if(action.instructions!==undefined)p.instructions=action.instructions;} }
   } else if (action.type === 'delete_project') {
     state.projects = projects.filter(p => p.id !== action.id);
     state.conversations.forEach(c => { if (c.project_id === action.id) delete c.project_id; });
   } else if (action.type === 'move_conversation') {
     const c = state.conversations.find(c => c.id === action.id);
     if (!c || (action.project_id && !projects.some(p => p.id === action.project_id))) { state.notice = '项目或会话不存在。'; return state; }
+    if ((c.project_id || '')!==action.project_id && state.runs.some(r=>r.conversation===c.id && runActive(r))) {state.notice='请等待或停止当前会话任务后再切换项目';return state;}
     c.project_id = action.project_id;
   } else if (action.type === "new_chat") {
     const agent = state.agents.find(a => a.id === (action.agent_id || 'tebb'))!;

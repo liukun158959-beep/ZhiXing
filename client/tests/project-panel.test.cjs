@@ -98,6 +98,7 @@ test('opening a folder saves it immediately, clears old grants, and cancel prese
   calls.push(args);
   if(args.operation==='load')return {ok:true,workspace:current};
   if(args.operation==='pick')return {ok:true,paths:selected};
+  if(args.operation==='open'){current={revision:'new-revision',primary:args.primary,references:[],edit:false,commands:false,project_id:'opened'};return {ok:true,workspace:current};}
   if(args.operation==='save'){current={...args,revision:'new-revision'};return {ok:true,workspace:current};}
   return api.rpc(i,m,args);
  };
@@ -113,7 +114,7 @@ test('opening a folder saves it immediately, clears old grants, and cancel prese
  assert.equal(current.edit,true);assert.equal(current.commands,true);
  selected=[];
  await act(async()=>button(view,'切换文件夹').props.onClick());
- assert.equal(calls.filter(c=>c.operation==='save').length,2);assert.equal(current.primary,'E:/new-project');
+ assert.equal(calls.filter(c=>c.operation==='open').length,1);assert.equal(calls.filter(c=>c.operation==='save').length,1);assert.equal(current.primary,'E:/new-project');
  await act(async()=>view.unmount());
 });
 
@@ -130,5 +131,27 @@ test('empty workspace offers folder picker and dirty files prevent changing dire
  await act(async()=>view.root.findByProps({'aria-label':'文件编辑内容'}).props.onChange({target:{value:'unsaved'}}));
  await act(async()=>button(view,'切换文件夹').props.onClick());
  assert(!api.calls.some(c=>c.operation==='pick'));assert(text(view.toJSON()).includes('请先保存或撤销'));
+ await act(async()=>view.unmount());
+});
+
+test('project switching preserves dirty files and routes their save to the original project before loading the new one',async()=>{
+ const bus=new EventTarget();global.window=bus;
+ global.CustomEvent=class extends Event{constructor(type,options){super(type);this.detail=options.detail;}};
+ const calls=[];const old={...config,project_id:'p-a'},next={...config,primary:'E:/second',revision:'workspace-two',project_id:'p-b'};
+ const rpc=async(_i,_m,args)=>{calls.push(args);
+  if(args.operation==='load')return {ok:true,workspace:args.project_id==='p-b'?next:old};
+  if(args.operation==='tree')return {ok:true,entries:[{name:'a.py',path:'a.py',directory:false}]};
+  if(args.operation==='read')return {ok:true,root:'main',path:'a.py',name:'a.py',kind:'text',text:'value=1',revision:'hash',workspace_revision:old.revision,editable:true};
+  if(args.operation==='write'){assert.equal(args.project_id,'p-a');return {ok:true,revision:'new-hash',diff:'changed'};}
+  throw Error('unexpected operation');};
+ const {ProjectPanel}=load(rpc);let view;await act(async()=>{view=create(React.createElement(ProjectPanel,{info,onQuote(){}}));});
+ await act(async()=>button(view,'· a.py').props.onClick());await act(async()=>button(view,'编辑').props.onClick());
+ await act(async()=>view.root.findByProps({'aria-label':'文件编辑内容'}).props.onChange({target:{value:'value=2'}}));
+ await act(async()=>bus.dispatchEvent(new CustomEvent('tebb-project-selected',{detail:{project_id:'p-b',revision:next.revision}})));
+ assert.equal(view.root.findByProps({'aria-label':'文件编辑内容'}).props.value,'value=2');
+ assert(!calls.some(c=>c.operation==='load'&&c.project_id==='p-b'));
+ await act(async()=>button(view,'保存').props.onClick());
+ assert(calls.some(c=>c.operation==='load'&&c.project_id==='p-b'));
+ assert(text(view.toJSON()).includes('E:/second'));assert(!text(view.toJSON()).includes('a.py *'));
  await act(async()=>view.unmount());
 });

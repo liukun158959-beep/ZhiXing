@@ -156,10 +156,25 @@ class CollaborationTests(unittest.TestCase):
         reopened = Collaboration(path=self.service.path, managers=self.service.managers, start=False)
         try:
             saved = reopened.snapshot()['state']
-            self.assertEqual(saved['projects'], [dict(id=project['id'], name='Atlas 开发')])
+            self.assertEqual(saved['projects'], [dict(id=project['id'], name='Atlas 开发', primary='')])
             self.assertEqual(saved['selected'], before['selected'])
             self.assertEqual(saved['conversations'][0]['project_id'], project['id'])
         finally: reopened.shutdown()
+
+    def test_concurrent_selection_cannot_replace_the_snapshot_returned_for_an_action(self):
+        import time
+        ready, attempted=threading.Event(),threading.Event();original=self.service.snapshot;result={}
+        def snapshot():
+            if threading.current_thread().name=='first-selection':
+                ready.set();self.assertTrue(attempted.wait(2));time.sleep(.04)
+            return original()
+        def first():result['first']=self.service.action(dict(type='select',conversation='dm-research',request_id=uuid.uuid4().hex))['state']
+        def second():
+            ready.wait(2);attempted.set();result['second']=self.service.action(dict(type='select',conversation='dm-writer',request_id=uuid.uuid4().hex))['state']
+        with patch.object(self.service,'snapshot',side_effect=snapshot):
+            a=threading.Thread(target=first,name='first-selection');b=threading.Thread(target=second,name='second-selection');a.start();b.start();a.join(3);b.join(3)
+        self.assertFalse(a.is_alive() or b.is_alive())
+        self.assertEqual(result['first']['selected'],'dm-research');self.assertEqual(result['second']['selected'],'dm-writer')
 
     def test_project_validation_rolls_back_missing_targets_and_duplicate_names(self):
         for name in ('', '  ', None, [], 'x'*41):
@@ -196,8 +211,84 @@ class CollaborationTests(unittest.TestCase):
         state = self.action(type='new_chat', project_id='')
         self.assertEqual(state['conversations'][-1]['project_id'], '')
 
+    def test_folder_projects_reuse_paths_keep_separate_grants_and_pin_running_workspace(self):
+        from desk_companion import project_workspace as project
+        first=Path(self.temp.name)/'a'/'app';first.mkdir(parents=True);(first/'who.txt').write_text('A')
+        other=Path(self.temp.name)/'b'/'app';other.mkdir(parents=True);(other/'who.txt').write_text('B')
+        state=self.action(type='open_folder_project',primary=str(first));pid=state['projects'][0]['id'];cid=state['selected']
+        cfg=project.save(str(first),edit=True,project_id=pid)['workspace']
+        state=self.action(type='open_folder_project',primary=str(other));other_pid=state['conversations'][-1]['project_id']
+        self.assertNotEqual(pid,other_pid);self.assertEqual(len({p['name'] for p in state['projects']}),2)
+        self.assertFalse(state['workspace']['edit']);self.assertFalse(state['workspace']['commands'])
+        self.assertEqual(project.current(cfg),cfg)
+        read=project.read('main','who.txt',config=cfg);self.assertEqual(read['text'],'A')
+        project.write('who.txt','A changed',read['revision'],config=cfg)
+        self.assertEqual((other/'who.txt').read_text(),'B')
+        self.service.action(dict(type='send',conversation=cid,text='继续项目A',mode='message',request_id=uuid.uuid4().hex))
+        with transaction(self.service.path) as (internal,_): self.assertEqual(internal['runs'][-1]['workspace'],cfg)
+        state=self.action(type='open_folder_project',primary=str(first))
+        self.assertEqual(len(state['projects']),2);self.assertEqual(state['workspace'],cfg)
+        project.save(str(first),edit=False,project_id=pid)
+        with self.assertRaisesRegex(ValueError,'授权已变化'):project.current(cfg)
+
+    def test_unbound_projects_can_attach_folders_and_share_only_explicit_materials(self):
+        from desk_companion.bridge import Bridge
+        from types import SimpleNamespace
+        folder=Path(self.temp.name)/'folder';folder.mkdir()
+        state=self.action(type='create_project',name='保留项目名');pid=state['projects'][0]['id']
+        self.action(type='move_conversation',id='group-research',project_id=pid)
+        state=self.action(type='open_folder_project',primary=str(folder),bind_id=pid)
+        self.assertEqual(state['projects'][0]['name'],'保留项目名');self.assertEqual(state['selected'],'group-research')
+        self.action(type='rename_project',id=pid,name='保留项目名',instructions='所有结论都应给出来源')
+        self.action(type='send',text='产出共享成果',mode='message')
+        with transaction(self.service.path) as (state,_):
+            run=state['runs'][-1];run.update(state='succeeded',answer='明确保存的结论');run_id=run['id']
+            state['messages'].append(dict(id=uuid.uuid4().hex,conversation='group-research',sender='user',text='其他聊天的私有原文'))
+        bridge=Bridge(SimpleNamespace(collaboration=self.service))
+        with patch('desk_companion.notebook.save_agent_artifact',return_value={'ok':True}):
+            bridge.save_collaboration_note(run_id);bridge.save_collaboration_note(run_id)
+        self.assertEqual(len(self.state()['projects'][0]['sources']),1)
+        from desk_companion.chat_projects import search_chats
+        state=self.action(type='new_chat',project_id=pid);cid=state['selected']
+        self.service.action(dict(type='send',conversation=cid,text='继续',mode='message',request_id=uuid.uuid4().hex))
+        with transaction(self.service.path) as (state,_): context=json.dumps(state['runs'][-1]['context'],ensure_ascii=False)
+        self.assertIn('所有结论都应给出来源',context);self.assertIn('明确保存的结论',context);self.assertNotIn('其他聊天的私有原文',context)
+        state=self.action(type='new_chat',project_id='');unbound=state['selected']
+        self.service.action(dict(type='send',conversation=unbound,text='独立聊天',mode='message',request_id=uuid.uuid4().hex))
+        with transaction(self.service.path) as (state,_):
+            self.assertFalse(state['runs'][-1]['workspace']['primary'])
+            self.assertNotIn('明确保存的结论',json.dumps(state['runs'][-1]['context'],ensure_ascii=False))
+            state['messages'].append(dict(id=uuid.uuid4().hex,conversation=unbound,sender='user',text='其他聊天的私有原文 OTHER_PROJECT'))
+            current_run=next(r['id'] for r in state['runs'] if r['conversation']==cid)
+        matches=search_chats(self.service.path,pid,current_run,'私有原文')['matches']
+        self.assertEqual(len(matches),1);self.assertNotIn('OTHER_PROJECT',matches[0]['text'])
+        self.assertEqual(matches[0]['conversation'],'group-research')
+
+    def test_history_folder_preview_is_readonly_and_migration_requires_current_explicit_selection(self):
+        from desk_companion.chat_projects import preview
+        from desk_companion import project_workspace as project
+        folder=Path(self.temp.name)/'history';folder.mkdir();(folder/'keep.txt').write_text('unchanged')
+        second=Path(self.temp.name)/'second';second.mkdir()
+        with transaction(self.service.path) as (state,_):
+            for cid,paths,status in [('dm-research',[str(folder)],'succeeded'),('dm-writer',[str(folder),str(second)],'succeeded'),('dm-tebb',[str(folder)],'pending')]:
+                for primary in paths:state['runs'].append(dict(id=uuid.uuid4().hex,conversation=cid,state=status,workspace=dict(primary=primary)))
+            raw=copy.deepcopy(state)
+            result=preview(state);self.assertEqual(state,raw)
+        rows={r['id']:r for r in result['rows']}
+        self.assertEqual(rows['dm-research']['status'],'matched');self.assertEqual(rows['dm-writer']['status'],'multiple');self.assertEqual(rows['dm-tebb']['status'],'busy');self.assertEqual(rows['group-research']['status'],'none')
+        self.assertEqual(self.state()['projects'],[])
+        for ids,token in [(['dm-writer'],result['token']),(['dm-tebb'],result['token']),(['dm-research'],'stale'),([[]],result['token'])]:
+            with self.assertRaises(ValueError):self.action(type='migrate_projects',ids=ids,token=token)
+        state=self.action(type='migrate_projects',ids=['dm-research'],token=result['token'])
+        pid=next(c for c in state['conversations'] if c['id']=='dm-research')['project_id']
+        self.assertEqual(project.load(pid)['primary'],str(folder));self.assertFalse(project.load(pid)['edit'])
+        self.assertEqual((folder/'keep.txt').read_text(),'unchanged')
+        self.assertNotIn('project_id',next(c for c in state['conversations'] if c['id']=='dm-writer'))
+        with self.assertRaisesRegex(ValueError,'重新预览'):self.action(type='migrate_projects',ids=['dm-research'],token=result['token'])
+
     def test_moving_and_deleting_a_project_preserve_live_work_messages_and_permissions(self):
         project = self.action(type='create_project', name='研究')['projects'][0]['id']
+        self.action(type='move_conversation', id='group-research', project_id=project)
         self.action(type='send', text='保留这个任务', target='research', mode='task')
         before = self.state()
         moved = self.action(type='move_conversation', id='group-research', project_id=project)
@@ -205,6 +296,7 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual(moved['runs'], before['runs'])
         self.assertEqual(moved['agents'], before['agents'])
         self.assertEqual(moved['workspace'], before['workspace'])
+        with self.assertRaisesRegex(ValueError,'等待或停止'): self.action(type='move_conversation',id='group-research',project_id='')
         deleted = self.action(type='delete_project', id=project)
         self.assertEqual(deleted['projects'], [])
         self.assertEqual(deleted['messages'], before['messages'])
@@ -343,6 +435,7 @@ class CollaborationTests(unittest.TestCase):
     def test_coder_real_file_tool_loop_records_failure_fix_and_fresh_verification(self):
         from desk_companion import project_workspace as project
         folder=Path(self.temp.name)/'code';folder.mkdir();(folder/'app.py').write_bytes(b'value = 1\n')
+        self.action(type='open_folder_project',primary=str(folder))
         cfg=project.save(str(folder),[],True,True)['workspace']
         request=self.request(role=dict(id='coder',name='码可',role='修改并验证',tools=['工作区读取','文件编辑','终端'],memory=''))
         request.update(workspace=cfg,budget=6)
@@ -386,6 +479,7 @@ class CollaborationTests(unittest.TestCase):
     def test_coder_cannot_invent_write_tool_without_directory_or_permission(self):
         from desk_companion import project_workspace as project
         folder=Path(self.temp.name)/'readonly'; folder.mkdir()
+        self.action(type='open_folder_project',primary=str(folder))
         cfg=project.save(str(folder),[],False,False)['workspace']
         request=self.request(role=dict(id='coder',name='码可',role='编程伙伴',tools=['工作区读取','文件编辑','终端']))
         seen=[]

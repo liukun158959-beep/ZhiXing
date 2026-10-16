@@ -1,0 +1,14 @@
+import { useEffect, useState } from 'react';
+import { rpc, type BackendInfo } from './api';
+
+type Preview = {token:string;rows:{id:string;title:string;paths:string[];status:string;project_name:string}[]};
+const labels:Record<string,string>={matched:'路径明确，可归类',multiple:'存在多个工作目录，需手动选择',none:'没有目录记录',busy:'任务进行中，暂不迁移',missing:'原文件夹不可用，请先重新定位',assigned:'已在对应项目中'};
+export function ProjectMigration({backend,busy,onApply,onClose}:{backend:BackendInfo|null|undefined;busy:boolean;onApply:(token:string,ids:string[])=>Promise<boolean>;onClose:()=>void}){
+  const [preview,setPreview]=useState<Preview|null>(null),[selected,setSelected]=useState<string[]>([]),[error,setError]=useState(''),[retry,setRetry]=useState(0);
+  useEffect(()=>{let alive=true;setPreview(null);setSelected([]);setError('');if(!backend || backend.scope==='collaboration'){setError('请在桌面客户端查看本地历史归类建议。');return;}
+    void rpc<Preview>(backend,'project_workspace',{operation:'migration_preview'}).then(result=>{if(alive){setPreview(result);setSelected(result.rows.filter(r=>r.status==='matched').slice(0,500).map(r=>r.id));}}).catch(e=>{if(alive)setError(String(e));});return()=>{alive=false;};},[backend?.port,backend?.token,retry]);
+  return <div className="cp-form cp-migration"><p className="cp-muted">建议仅依据任务实际保存的工作目录。确认前不会移动任何对话或创建项目；运行中的会话暂不迁移。</p>{!preview&&!error&&<p role="status">正在检查目录记录…</p>}{error&&<p role="alert" className="cp-error">{error}</p>}
+    {preview&&<><label className="cp-migration-all"><input type="checkbox" checked={selected.length>0&&selected.length===preview.rows.filter(r=>r.status==='matched').slice(0,500).length} onChange={e=>setSelected(e.target.checked?preview.rows.filter(r=>r.status==='matched').slice(0,500).map(r=>r.id):[])}/>选择全部明确匹配项（每批最多500段）</label><div className="cp-migration-list">{Object.entries(labels).map(([status,label])=>{const rows=preview.rows.filter(r=>r.status===status);return rows.length>0&&<section key={status}><h3>{label} · {rows.length}</h3>{rows.map(row=><label key={row.id}><input type="checkbox" disabled={status!=='matched'} checked={selected.includes(row.id)} onChange={e=>setSelected(old=>e.target.checked?[...old,row.id].slice(0,500):old.filter(id=>id!==row.id))}/><span><strong>{row.title}</strong><small>{row.paths.join(' ／ ')||'未记录目录'}{row.project_name&&` → ${row.project_name}`}</small></span></label>)}</section>;})}</div></>}
+    <footer><button type="button" className="cp-button" disabled={busy} onClick={()=>setRetry(n=>n+1)}>重新预览</button><button type="button" className="cp-button" onClick={onClose}>取消</button><button type="button" className="cp-button cp-primary" disabled={busy||!preview||!selected.length} onClick={async()=>{setError('');try{if(preview&&await onApply(preview.token,selected))onClose();else setError('归类未完成，请检查提示；若任务或目录变化，请重新预览。');}catch(e){setError(String(e));}}}>确认归类 {selected.length} 段对话</button></footer>
+  </div>;
+}

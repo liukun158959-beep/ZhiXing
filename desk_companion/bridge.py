@@ -39,7 +39,14 @@ class Bridge:
             conversation = next(c for c in state['conversations'] if c['id']==run['conversation'])
             agent = next(a for a in state['agents'] if a['id']==run['agent'])
             payload = (conversation['id'],run_id,conversation['title'],run['input'],run['answer'],agent['name'])
-        return save_agent_artifact(*payload)
+            project = next((p for p in state['projects'] if p['id']==conversation.get('project_id')),None)
+            if project and len(project.get('sources',[]))>=30 and not any(s['id']==run_id for s in project['sources']): raise ValueError('项目最多保存30份资料，请先移除不再使用的资料')
+            result = save_agent_artifact(*payload)
+            if project:
+                sources=project.setdefault('sources',[])
+                if not any(s['id']==run_id for s in sources):
+                    sources.append(dict(id=run_id,title=run['title'],text=run['answer'][:12000],truncated=len(run['answer'])>12000))
+        return result
 
     def prepare_notebook_source(self, session_id: str, note_id: str) -> dict:
         from tempfile import TemporaryDirectory
@@ -57,11 +64,29 @@ class Bridge:
         if operation == "pick":
             from .local_sources import pick
             return pick("folder", args.get("request_id", ""), stage_selection=False)
-        if operation == "load": return {"ok": True, "workspace": project.load()}
-        if operation == "save": return project.save(**args)
-        if operation == "tree": return project.tree(**args)
-        if operation == "read": return project.read(**args)
-        if operation == "write": return project.write(**args)
+        if operation == 'open':
+            state=self._host.collaboration.action(dict(type='open_folder_project',primary=args.get('primary'),bind_id=args.get('bind_id',''),request_id=args['request_id']))['state']
+            return dict(ok=True,workspace=state['workspace'],state=state)
+        if operation == 'migration_preview':
+            from .chat_projects import preview
+            from .collaboration import transaction
+            with self._host.collaboration.lock, transaction(self._host.collaboration.path) as (state,_): return preview(state)
+        if operation == "load": return {"ok": True, "workspace": project.load(args.get('project_id'))}
+        if operation == "save":
+            from .chat_projects import matching
+            from .collaboration import transaction
+            collab=self._host.collaboration
+            with collab.lock, transaction(collab.path) as (state,_):
+                pid=args.get('project_id') or next((c.get('project_id','') for c in state['conversations'] if c['id']==state['selected']),'')
+                if not pid or not any(p['id']==pid for p in state['projects']): raise ValueError('请先打开文件夹创建项目')
+                main=str(project.clean_root(args.get('primary')))
+                existing=matching(state,main)
+                if existing and existing['id']!=pid: raise ValueError('该目录已属于另一个项目，请从侧栏打开已有项目')
+                args['project_id']=pid
+                return project.save(**args)
+        if operation in {'tree','read','write'}:
+            cfg=project.load(args.pop('project_id',None))
+            return getattr(project,operation)(config=cfg,**args)
         raise ValueError("未知工作区操作")
 
     def terminal_status(self, refresh=False, distro=None):

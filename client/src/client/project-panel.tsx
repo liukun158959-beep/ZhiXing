@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { rpc, type BackendInfo } from "./api";
 import { Markdown } from "./Markdown";
 
-export type ProjectConfig = { revision: string; primary: string; references: string[]; edit: boolean; commands: boolean };
+export type ProjectConfig = { revision: string; primary: string; references: string[]; edit: boolean; commands: boolean; project_id?:string };
 type Entry = { name: string; path: string; directory: boolean; size: number };
 type FileView = { root: string; path: string; name: string; revision: string; workspace_revision: string; kind: string; text?: string; data?: string; editable: boolean; draft: string; original: string; diff?: string; scroll: number };
 
@@ -22,11 +22,12 @@ export function ProjectPanel({ info, onQuote, onDirty, folderRequest = 0 }: { fo
   const current = files.find(f => f.root+":"+f.path === active);
   const alive = useRef(true), generation = useRef(0), filesRef = useRef(files), configRef = useRef(config);
   const [loaded, setLoaded] = useState(false), handledRequest = useRef(0), picking = useRef(false);
+  const [contextVersion,setContextVersion]=useState(0),contextProject=useRef<string|undefined>();
   filesRef.current = files; configRef.current = config;
   const reader = useRef<HTMLDivElement>(null), editor = useRef<HTMLTextAreaElement>(null);
   const api = async <T,>(operation: string, args = {}): Promise<T> => {
     if (!info || info.scope === "collaboration") throw new Error("请在桌面客户端管理工作目录与本地文件。");
-    const result = await rpc<T & { ok: boolean; error?: string }>(info, "project_workspace", { operation, ...args }, { timeoutMs: 120000 });
+    const result = await rpc<T & { ok: boolean; error?: string }>(info, "project_workspace", { operation, ...(configRef.current.project_id!==undefined ? {project_id:configRef.current.project_id}:{}), ...args }, { timeoutMs: 120000 });
     if (!result.ok) throw new Error(result.error || "工作区操作失败"); return result;
   };
   useEffect(() => {
@@ -35,6 +36,10 @@ export function ProjectPanel({ info, onQuote, onDirty, folderRequest = 0 }: { fo
     void api<{ workspace: ProjectConfig }>("load").then(result => { if (alive.current) { setConfig(result.workspace); setForm(result.workspace); setLoaded(true); } }).catch(e => { if (alive.current) setError(String(e)); });
     return () => { alive.current = false; generation.current++; };
   }, [info?.port, info?.token]);
+  useEffect(()=>{if(typeof window==='undefined'||!window.addEventListener)return;const changed=(event:Event)=>{const detail=(event as CustomEvent).detail;if(!detail || (detail.project_id===configRef.current.project_id && detail.revision===configRef.current.revision))return;contextProject.current=detail.project_id;setContextVersion(n=>n+1);};window.addEventListener('tebb-project-selected',changed);return()=>window.removeEventListener('tebb-project-selected',changed);},[]);
+  const dirty=files.some(f=>f.draft!==f.original);
+  useEffect(()=>{if(!contextVersion)return;if(dirty){setNotice('项目已切换，原项目的未保存编辑仍保留；请保存或撤销后继续浏览新项目。');return;}let live=true;const serial=++generation.current;setLoaded(false);setBusy(false);
+    void api<{workspace:ProjectConfig}>('load',{project_id:contextProject.current}).then(result=>{if(live&&serial===generation.current){setConfig(result.workspace);setForm(result.workspace);setFiles([]);setActive('');setRoot('main');setFolder('');setLoaded(true);}}).catch(e=>{if(live)setError(String(e));});return()=>{live=false;};},[contextVersion,dirty]);
   useEffect(() => {
     if (loaded && folderRequest > handledRequest.current) { handledRequest.current = folderRequest; void pick(true); }
   }, [loaded, folderRequest]);
@@ -85,7 +90,7 @@ export function ProjectPanel({ info, onQuote, onDirty, folderRequest = 0 }: { fo
     if (filesRef.current.some(f => f.draft !== f.original)) { setError("请先保存或撤销打开文件的编辑，再切换工作目录。"); return; }
     setBusy(true); setError("");
     try {
-      const result = await api<{ workspace: ProjectConfig }>("save", { primary: value.primary, references: value.references.filter(Boolean), edit: value.edit, commands: value.commands });
+      const result = await api<{ workspace: ProjectConfig }>(opened?"open":"save", opened?{primary:value.primary,request_id:crypto.randomUUID().replace(/-/g,'')}:{ primary: value.primary, references: value.references.filter(Boolean), edit: value.edit, commands: value.commands });
       if (alive.current) { generation.current++; setConfig(result.workspace); setForm(result.workspace); setFiles([]); setActive(""); setRoot("main"); setFolder(""); setConfigure(opened); window.dispatchEvent(new CustomEvent("tebb-workspace-changed",{detail:result.workspace})); setNotice(opened ? "文件夹已打开，可直接浏览。需要伙伴修改或验证代码时，请选择下面的权限并保存，再发送任务。" : "工作目录与权限已保存，新任务使用本次配置。"); }
     } catch (e) { if (alive.current) setError(String(e)); }
     finally { if (alive.current) setBusy(false); }

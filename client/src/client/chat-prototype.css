@@ -583,3 +583,15 @@
 .cp-project-breadcrumb { display: inline-flex; gap: 4px; align-items: center; max-width: 45%; flex-shrink: 0; color: var(--cp-muted); }
 .cp-project-breadcrumb svg { width: 12px; height: 12px; flex-shrink: 0; }
 .cp-danger { color: hsl(var(--destructive)) !important; }
+.cp-project-path { overflow-wrap:anywhere; }
+.cp-project-source { display:flex;gap:12px;align-items:center;font-size:12px;border-bottom:1px solid var(--cp-line);padding:6px 0; }
+.cp-project-source span { flex:1;min-width:0;overflow-wrap:anywhere; }
+.cp-project-source button { color:var(--cp-muted);flex-shrink:0; }
+.cp-migration-list { max-height:45vh;overflow:auto;border-top:1px solid var(--cp-line);margin-top:12px; }
+.cp-migration-list h3 { font-size:12px;color:var(--cp-accent);margin:12px 0 6px; }
+.cp-migration-list section > label { display:flex;align-items:flex-start;gap:8px;padding:5px 0; }
+.cp-migration-list input { width:auto;flex-shrink:0;margin-top:5px; }
+.cp-migration-list strong,.cp-migration-list small { display:block;font-size:12px;overflow-wrap:anywhere; }
+.cp-migration-list small { color:var(--cp-muted);font-size:11px; }
+.cp-migration-all { display:flex!important;gap:8px;align-items:center;font-size:12px!important; }
+.cp-migration-all input { width:auto!important; }

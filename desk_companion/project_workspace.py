@@ -1,12 +1,14 @@
 """Explicit local project grants, optimistic file writes and sandboxed verification."""
 from __future__ import annotations
 import base64
-from contextlib import contextmanager
+from contextlib import contextmanager, closing
 import difflib
 import hashlib
 import json
 import mimetypes
 import os
+import re
+import sqlite3
 from pathlib import Path, PurePosixPath
 import threading
 import time
@@ -24,14 +26,31 @@ SKIP = {'.git', '.svn', 'node_modules', '.venv', 'venv', '__pycache__', 'target'
 IMAGES = {'.png', '.jpg', '.jpeg', '.gif', '.webp'}
 
 
-def config_path():
+def selected_project():
+    path = data_root() / 'memory' / 'collaboration' / 'workspace.sqlite3'
+    if not path.exists(): return None
+    with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as db:
+        state = json.loads(db.execute('SELECT data FROM workspace WHERE id=1').fetchone()[0])
+    return next((c.get('project_id','') for c in state['conversations'] if c['id']==state['selected']), '')
+
+
+def config_path(project_id=None):
+    if project_id:
+        if not isinstance(project_id,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,100}', project_id): raise ValueError('项目编号无效')
+        return data_root() / 'memory' / 'project-workspaces' / (project_id+'.json')
     return data_root() / 'memory' / 'project-workspace.json'
 
 
-def load():
+def load(project_id=None):
     with CONFIG:
-        path = config_path()
-        return json.loads(path.read_text('utf-8')) if path.exists() else dict(revision='', primary='', references=[], edit=False, commands=False)
+        pid = selected_project() if project_id is None else project_id
+        if pid is not None and not isinstance(pid,str): raise ValueError('项目编号无效')
+        empty = dict(revision='', primary='', references=[], edit=False, commands=False)
+        if pid is not None: empty['project_id'] = pid
+        # An independent chat has no folder grant. Keep the old global file for migration only.
+        if pid == '': return empty
+        path = config_path(pid)
+        return json.loads(path.read_text('utf-8')) if path.exists() else empty
 
 
 def clean_root(value):
@@ -83,7 +102,7 @@ def lease(primary):
         lock.release()
 
 
-def save(primary, references=None, edit=False, commands=False):
+def save(primary, references=None, edit=False, commands=False, project_id=None):
     if type(edit) is not bool or type(commands) is not bool: raise ValueError('权限参数无效')
     refs = references or []
     if not isinstance(refs, list) or len(refs) > 4: raise ValueError('最多4个只读参考目录')
@@ -94,10 +113,13 @@ def save(primary, references=None, edit=False, commands=False):
         if any(a.is_relative_to(b) or b.is_relative_to(a) for b in all_paths[:i]):
             raise ValueError('主目录与参考目录不能重叠')
     if not main and (edit or commands): raise ValueError('请先指定主目录')
-    old = load()
+    pid = selected_project() if project_id is None else project_id
+    if pid == '': raise ValueError('请先打开文件夹创建项目，再配置目录与权限')
+    old = load(pid)
     with lease(old['primary'] or str(config_path().parent)), CONFIG:
         value = dict(revision=uuid.uuid4().hex, primary=str(main) if main else '', references=[str(p) for p in paths], edit=edit, commands=commands)
-        atomic_write(config_path(), value)
+        if pid is not None: value['project_id'] = pid
+        atomic_write(config_path(pid), value)
     return dict(ok=True, workspace=value)
 
 
@@ -117,8 +139,8 @@ def resolve(root_id='main', relative='', config=None):
     return path, cfg
 
 
-def tree(root_id='main', relative=''):
-    path, cfg = resolve(root_id, relative)
+def tree(root_id='main', relative='', config=None):
+    path, cfg = resolve(root_id, relative, config)
     if not path.is_dir(): raise ValueError('目录不存在')
     rows = []
     from itertools import islice
@@ -134,8 +156,8 @@ def tree(root_id='main', relative=''):
     return dict(ok=True, entries=rows, limited=len(rows) >= 400 or len(candidates) >= 2000)
 
 
-def read(root_id, relative):
-    path, cfg = resolve(root_id, relative)
+def read(root_id, relative, config=None):
+    path, cfg = resolve(root_id, relative, config)
     if not path.is_file(): raise ValueError('文件不存在')
     if path.stat().st_size > MAX_FILE: raise ValueError('预览上限1 MiB，请使用附件提取或本地应用打开')
     raw = path.read_bytes()
@@ -156,7 +178,7 @@ def read(root_id, relative):
 
 
 def write(relative, text, revision, *, config=None, locked=False, workspace_revision=None):
-    cfg = load()
+    cfg = load(config.get('project_id')) if config else load()
     if workspace_revision is not None and cfg["revision"] != workspace_revision: raise ValueError("工作目录已切换，请重新打开文件")
     if config and cfg['revision'] != config['revision']: raise ValueError('工作目录授权已变化，请重新提交任务')
     if not cfg['edit']: raise ValueError('工作目录尚未授权文件编辑')
@@ -185,7 +207,7 @@ def write(relative, text, revision, *, config=None, locked=False, workspace_revi
 
 
 def current(snapshot):
-    cfg = load()
+    cfg = load(snapshot.get('project_id')) if snapshot else load()
     if not snapshot or cfg['revision'] != snapshot.get('revision'): raise ValueError('工作目录授权已变化，请重新提交任务')
     return cfg
 

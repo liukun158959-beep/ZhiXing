@@ -361,6 +361,7 @@ test('restoring legacy companion names keeps custom names, model, permissions an
 
 test('projects restore old history and keep conversation membership across reloads', () => {
   const legacy = initialDemo(); delete legacy.projects;
+  legacy.runs.forEach(r=>r.state='cancelled');
   const migrated = restoreDemo(JSON.stringify(legacy));
   assert.deepEqual(migrated.projects, []); assert.deepEqual(migrated.messages, legacy.messages);
   let state = reduce(migrated, {type:'create_project',name:'Atlas'}); const pid=state.projects[0].id;
@@ -372,8 +373,9 @@ test('projects restore old history and keep conversation membership across reloa
   assert.deepEqual(restored.messages,legacy.messages); assert.deepEqual(restored.runs,legacy.runs);
 });
 
-test('sidebar creates, renames and deletes projects, and moving live conversations preserves drafts and work', async () => {
+test('sidebar creates, renames and deletes projects, and moving finished conversations preserves drafts and work', async () => {
   const {saved}=environment();const {ChatPrototype}=load('chat-prototype');let view;
+  const seed=initialDemo();seed.runs.forEach(r=>r.state='cancelled');saved.set(DEMO_STORAGE,JSON.stringify(seed));
   await act(async()=>{view=create(React.createElement(ChatPrototype));});
   const state=()=>JSON.parse(saved.get(DEMO_STORAGE));
   const submitModal=async()=>act(async()=>view.root.findByProps({role:'dialog'}).findByType('form').props.onSubmit({preventDefault(){}}));
@@ -423,13 +425,32 @@ test('project new-chat and group creation inherit the folder, and ungrouped entr
 
 test('failed project saves keep the name and dialog available for retry', async () => {
   environment();const {ChatPrototype}=load('chat-prototype');const actions=[];let view;
-  await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state:initialDemo(),busy:false,error:'',act:async action=>{actions.push(action);return false;}}}));});
-  await act(async()=>button(view,'新建项目').props.onClick());
+  const state=initialDemo();state.projects=[{id:'p1',name:'旧项目'}];
+  await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state,busy:false,error:'',act:async action=>{actions.push(action);return false;}}}));});
+  await act(async()=>button(view,'旧项目的项目设置').props.onClick());
   await act(async()=>view.root.findByProps({'aria-label':'项目名称'}).props.onChange({target:{value:'未保存的项目'}}));
   await act(async()=>view.root.findByProps({role:'dialog'}).findByType('form').props.onSubmit({preventDefault(){}}));
-  assert.equal(actions[0].type,'create_project');assert.equal(actions[0].name,'未保存的项目');
+  assert.equal(actions[0].type,'rename_project');assert.equal(actions[0].name,'未保存的项目');
   assert.equal(view.root.findByProps({'aria-label':'项目名称'}).props.value,'未保存的项目');
   await act(async()=>view.unmount());
+});
+
+test('real folder entry opens the chooser and creates a folder-bound project without a manual name form',async()=>{
+ environment();const actions=[],calls=[];const {ChatPrototype}=load('chat-prototype',{'./api':{rpc:async(_i,method,args)=>{calls.push({method,args});return {paths:['E:/Atlas']};}}});let view;
+ await act(async()=>{view=create(React.createElement(ChatPrototype,{backend:{port:1,token:'fixture'},live:{state:initialDemo(),busy:false,error:'',act:async a=>{actions.push(a);return true;}}}));});
+ await act(async()=>button(view,'新建项目').props.onClick());
+ assert.equal(calls[0].args.operation,'pick');assert.equal(actions[0].type,'open_folder_project');assert.equal(actions[0].primary,'E:/Atlas');
+ assert.equal(view.root.findAllByProps({'aria-label':'项目名称'}).length,0);
+ await act(async()=>view.unmount());
+});
+
+test('migration preview separates evidence categories and makes no move until explicit confirmation',async()=>{
+ environment();const {ProjectMigration}=load('project-migration',{'./api':{rpc:async()=>({token:'proof',rows:[{id:'a',title:'明确的历史',paths:['E:/Atlas'],status:'matched',project_name:'Atlas'},{id:'b',title:'多个目录',paths:['E:/A','E:/B'],status:'multiple',project_name:''},{id:'c',title:'执行中',paths:['E:/A'],status:'busy',project_name:''}]})}});
+ const calls=[];let closed=0,view;await act(async()=>{view=create(React.createElement(ProjectMigration,{backend:{port:1,token:'fixture'},busy:false,onApply:async(token,ids)=>{calls.push({token,ids});return true;},onClose:()=>closed++}));});
+ assert.equal(calls.length,0);assert(text(view.toJSON()).includes('存在多个工作目录'));assert(text(view.toJSON()).includes('任务进行中'));
+ assert.equal(view.root.findAllByType('input').filter(n=>n.props.disabled).length,2);
+ await act(async()=>button(view,'确认归类 1 段对话').props.onClick());
+ assert.deepEqual(calls,[{token:'proof',ids:['a']}]);assert.equal(closed,1);await act(async()=>view.unmount());
 });
 
 
