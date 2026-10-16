@@ -8,6 +8,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{Emitter, Manager, PhysicalPosition};
 mod video_login;
+mod pet_chat;
+use pet_chat::set_pet_chat_visible;
 mod side_browser;
 use side_browser::{open_side_browser, side_browser_layout, side_browser_action};
 use video_login::{open_video_login, capture_video_login, clear_video_login_window};
@@ -331,7 +333,7 @@ pub fn run() {
         })
         .invoke_handler(|invoke| {
             // Remote platform pages must never obtain backend tokens or invoke app commands.
-            if !matches!(invoke.message.webview_ref().label(), "main" | "pet") {
+            if !matches!(invoke.message.webview_ref().label(), "main" | "pet" | "pet-chat") {
                 invoke.resolver.reject("远程网页不能调用本地助手。");
                 return true;
             }
@@ -346,6 +348,7 @@ pub fn run() {
             set_pet_menu_region,
             backend_info,
             set_pet_visible,
+            set_pet_chat_visible,
             set_drag_lock,
             nudge_pet,
             show_main,

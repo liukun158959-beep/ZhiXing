@@ -15,7 +15,7 @@ function mount(rpc) {
   const mod = new Module(filename, module);
   mod.filename = filename; mod.paths = Module._nodeModulePaths(path.dirname(filename));
   const original = mod.require.bind(mod);
-  mod.require = (id) => id === './api' ? { rpc } : id === '@tauri-apps/api/core' ? { isTauri: () => false } : original(id);
+  mod.require = (id) => id === './page-stack' ? { usePageActive: () => true } : id === './api' ? { rpc } : id === '@tauri-apps/api/core' ? { isTauri: () => false } : original(id);
   mod._compile(compiled, filename);
   global.window = { setInterval: () => 1, clearInterval() {} };
   let renderer;

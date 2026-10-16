@@ -15,8 +15,8 @@ function stopPet() {
   app = null; model = null; lastMotion = '';
 }
 
-export function startBuiltinPet(canvas: HTMLCanvasElement, skin: BuiltinSkin) {
-  stopPet(); builtin = mountBuiltinPet(canvas, skin); lastMotion = 'Idle';
+export function startBuiltinPet(canvas: HTMLCanvasElement, skin: BuiltinSkin, size = 48) {
+  stopPet(); builtin = mountBuiltinPet(canvas, skin, size); lastMotion = 'Idle';
 }
 
 const HEADROOM = 72;
@@ -70,6 +70,8 @@ export async function startPet(canvas: HTMLCanvasElement, modelUrl: string): Pro
   model.y = viewH - 4;
   await playMotion("Idle");
 }
+
+export function setPetWorking(value: boolean) { builtin?.active(value); }
 
 export function currentMotion(): string {
   const playing = model?.internalModel.motionManager.state.currentGroup;

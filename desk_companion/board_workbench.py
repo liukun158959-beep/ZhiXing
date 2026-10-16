@@ -55,7 +55,7 @@ class BoardWorkbench:
     def new_chat_session(self) -> dict:
         try:
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再开新对话。")
+                raise RuntimeError("助手正在回复，等这句说完再开新对话。")
             current = list_chat(self.state.session_id)
             if current:
                 self.state.session_id = new_session_id()
@@ -74,7 +74,7 @@ class BoardWorkbench:
             if sid != self.state.session_id and sid not in known:
                 raise RuntimeError("没有这条对话线程。")
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再切换对话。")
+                raise RuntimeError("助手正在回复，等这句说完再切换对话。")
             self.state.session_id = sid
             self.state.save()
             self._reload_session_views()
@@ -183,7 +183,7 @@ class BoardWorkbench:
         if self.pet is None:
             return {"ok": False, "error": "宠物还没就绪。"}
         if self.pet.busy or self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话。"}
+            return {"ok": False, "error": "助手正在回复。"}
         try:
             retro = chips.get("retro")
             if retro:

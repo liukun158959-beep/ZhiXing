@@ -38,3 +38,6 @@ client/dist/
 client/public/assets/
 client/public/skins/
 client/public/Core/
+
+# Local persona migration backup
+/user_state.before-tebb-persona.json

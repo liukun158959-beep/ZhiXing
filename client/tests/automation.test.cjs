@@ -27,7 +27,7 @@ test('preview, archive and group publication are distinct; enable checks targets
     return { ok: true, run_id: method === 'run_news' ? 'draft-id' : undefined };
   };
   const original = mod.require.bind(mod);
-  mod.require = id => id === './api' ? { rpc } : id === './Markdown' ? { Markdown: ({ text }) => React.createElement('p', null, text) } : original(id);
+  mod.require = id => id === './page-stack' ? { usePageActive: () => true } : id === './api' ? { rpc } : id === './Markdown' ? { Markdown: ({ text }) => React.createElement('p', null, text) } : original(id);
   mod._compile(compiled, filename);
   global.window = { setInterval: () => 1, clearInterval() {} };
   let renderer;

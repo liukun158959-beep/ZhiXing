@@ -596,7 +596,7 @@ class FeishuAgent:
             self._inbox.update(row["app"], row["id"], answer=json.dumps(pages, ensure_ascii=False))
         sender = CardReply(self._binding["profile"], row["id"], self._binding["owner_id"], row["id"])
         for index in range(row["sent"], len(pages)):
-            title = f"凯尔希 · 当前记忆（{index + 1}/{len(pages)}）"
+            title = f"tebb · 当前记忆（{index + 1}/{len(pages)}）"
             payload = card(title, "仅本人可查看 · 已保存的事实与摘要", pages[index] + "\n\n完整聊天记录：tebb 主窗口 → 飞书 → 聊天任务监控台。")
             try:
                 sender.send(payload, "interactive", sender._key(f"memory-{index}"))
@@ -805,7 +805,7 @@ class FeishuAgent:
             streaming = False
             self._diagnostic = "流式卡片不可用，已改为普通回复；请在应用后台开通并发布 cardkit:card:write。"
             try:
-                sender.send({"text": "博士，已收到。任务正在后台处理，可在 tebb 监控台查看或停止。"}, "text", sender._key("ack"))
+                sender.send({"text": "已收到。任务正在后台处理，可在 tebb 监控台查看或停止。"}, "text", sender._key("ack"))
             except Exception:
                 pass
         last, next_update = None, 0
@@ -836,13 +836,13 @@ class FeishuAgent:
         if not row["card_done"]:
             try:
                 sender.start()
-                sender.finish("博士，任务已完成。" if not failed else "博士，任务已中断，以下内容已保留。", answer, failed)
+                sender.finish("任务已完成。" if not failed else "任务已中断，以下内容已保留。", answer, failed)
             except Exception:
                 try:
-                    sender.finish("博士，任务已完成。" if not failed else "博士，任务已中断，以下内容已保留。", answer, failed)
+                    sender.finish("任务已完成。" if not failed else "任务已中断，以下内容已保留。", answer, failed)
                 except Exception:
                     from .feishu_cards import preview
-                    sender.send({"header": {"title": {"tag": "plain_text", "content": "凯尔希 · 任务回复"}},
+                    sender.send({"header": {"title": {"tag": "plain_text", "content": "tebb · 任务回复"}},
                                  "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": preview(answer)}}]},
                                 "interactive", sender._key("final-fallback"))
             self._inbox.update(row["app"], row["id"], card_done=1)
@@ -874,7 +874,7 @@ class FeishuAgent:
         persist = lambda **kw: self.host.tasks.update_source(task_id, **kw)
         sender = CardReply(source["profile"], source["message_id"], source["owner_id"], "continue-" + task_id, source, persist)
         try:
-            sender.start(status="博士，正在继续这段对话。")
+            sender.start(status="正在继续这段对话。")
             latest, next_update = None, 0
             while True:
                 task = self.host.tasks.get(task_id)

@@ -95,7 +95,7 @@ def drop_session_turn(session_id: str, role: str, text: str) -> None:
     if type(session_id) is not str or not session_id.strip():
         raise RuntimeError("drop_session_turn 需要非空 session_id。")
     if role not in ("user", "pet"):
-        raise RuntimeError("只能删你或凯尔希的一句。")
+        raise RuntimeError("只能删你或助手的一句。")
     if type(text) is not str or not text.strip():
         raise RuntimeError("要删的句子是空的。")
     sid = session_id.strip()
@@ -215,7 +215,7 @@ def format_recent(limit: int = 20) -> str:
         return "（还没有本地对话）"
     parts = []
     for rec in rows:
-        who = "用户" if rec["role"] == "user" else "凯尔希"
+        who = "用户" if rec["role"] == "user" else "助手"
         parts.append(f"{who}: {rec['text']}")
     return "\n".join(parts)
 

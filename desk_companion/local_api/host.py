@@ -91,7 +91,7 @@ class HeadlessApp(App):
         返回最终答案字符串，失败抛异常由 server 转成 error 帧。
         """
         if self._agent_running:
-            raise RuntimeError("凯尔希正在说话，等这句说完再发。")
+            raise RuntimeError("助手正在回复，等这句说完再发。")
         self.engage_model(model_id)
         picked = chips or {}
         if type(picked) is not dict:
@@ -331,7 +331,7 @@ class HeadlessApp(App):
 
     def run_notebook(self, session_id: str, text: str, doc_ids: list, sampling: dict, delta_sink, status_sink) -> dict:
         if self._agent_running:
-            raise RuntimeError("凯尔希正在说话，等这句说完再问。")
+            raise RuntimeError("助手正在回复，等这句说完再问。")
         self.engage_model()
         from ..knowledge import ask_sources
         from ..notebook import begin_notebook_turn, finish_notebook_turn
@@ -509,7 +509,7 @@ class HeadlessApp(App):
 
     def _knowledge_call(self, fn):
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再操作知识库。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再操作知识库。"}
         self._agent_running = True
         try:
             return fn()

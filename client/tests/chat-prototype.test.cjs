@@ -335,6 +335,7 @@ test('normal App starts in core chat and keeps its draft mounted across settings
   const modules = {
     './companion-ui': load('companion-ui'),
     './workspace-shell': load('workspace-shell'),
+    './page-stack': load('page-stack'),
     './live-collaboration': { LiveCollaboration: LiveStub },
     './debug': { debugPane: () => null, debugRequested: () => false, installDeskDebug() {} },
     './settings': { readStoredBackground: () => ({ url: '', error: '' }), SettingsPane: Empty },
@@ -379,7 +380,8 @@ test('normal App starts in core chat and keeps its draft mounted across settings
   assert.equal(root().props['data-pane'], 'collaboration'); assert.equal(draft().props.value, '跨页保留的草稿');
   assert.equal(mounts, 1);
   assert.equal(view.root.findByProps({'data-content-slot': true}), slot);
-  assert.equal(route().props.hidden, true); assert.equal(route().findAllByType('section').length, 0);
+  assert.equal(route().props.hidden, true); assert.equal(route().findAllByType('section').length, 1);
+  assert.equal(view.root.findByProps({'data-page-panel': 'settings'}).props.hidden, true);
   await act(async () => view.unmount()); assert.equal(unmounts, 1);
 });
 

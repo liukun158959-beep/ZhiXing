@@ -287,7 +287,7 @@ class App(BoardWorkbench):
 
     def clear_chat_history(self) -> dict:
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再清空。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再清空。"}
         if self.pet is None:
             raise RuntimeError("宠物窗口还在启动，无法清空。")
         clear_session(self.state.session_id)
@@ -314,7 +314,7 @@ class App(BoardWorkbench):
 
     def _rebuild_agent(self) -> None:
         if self._agent_running:
-            raise RuntimeError("凯尔希正在说话，等这句说完再保存。")
+            raise RuntimeError("助手正在回复，等这句说完再保存。")
         self.try_build_agent()
         if self.agent is None:
             raise RuntimeError(self._agent_error)
@@ -375,7 +375,7 @@ class App(BoardWorkbench):
 
     def board_compress_context(self) -> dict:
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再压缩。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再压缩。"}
         try:
             self.engage_model()
             self.prepare_context("", manual=True)
@@ -427,7 +427,7 @@ class App(BoardWorkbench):
         from .facts import add_user_fact
 
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再改事实。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再改事实。"}
         try:
             add_user_fact(text)
             return self.board_memory()
@@ -438,7 +438,7 @@ class App(BoardWorkbench):
         from .facts import update_user_fact
 
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再改事实。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再改事实。"}
         try:
             update_user_fact(fact_id, text)
             return self.board_memory()
@@ -449,7 +449,7 @@ class App(BoardWorkbench):
         from .memory import drop_session_turn
 
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再改记忆。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再改记忆。"}
         try:
             drop_session_turn(self.state.session_id, role, text)
             from .context_pack import drop_pack_if_covered
@@ -463,7 +463,7 @@ class App(BoardWorkbench):
         from .facts import delete_user_fact
 
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再改事实。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再改事实。"}
         try:
             delete_user_fact(fact_id)
             return self.board_memory()
@@ -511,7 +511,7 @@ class App(BoardWorkbench):
             return {"ok": False, "error": "人设保存参数必须是对象。"}
         try:
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再保存。")
+                raise RuntimeError("助手正在回复，等这句说完再保存。")
             persona = str(payload.get("persona") or "").strip()
             if not persona:
                 raise RuntimeError("人设不能为空。")
@@ -564,7 +564,7 @@ class App(BoardWorkbench):
             return {"ok": False, "error": "模型保存参数必须是对象。"}
         try:
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再保存。")
+                raise RuntimeError("助手正在回复，等这句说完再保存。")
             cat = upsert_entry(payload)
             self._bind_active_llm()
             return {"ok": True, "message": "模型已保存。", **public_catalog(cat)}
@@ -576,7 +576,7 @@ class App(BoardWorkbench):
 
         try:
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再删除。")
+                raise RuntimeError("助手正在回复，等这句说完再删除。")
             cat = delete_entry(model_id)
             self._bind_active_llm()
             return {"ok": True, "message": "模型已删除。", **public_catalog(cat)}
@@ -588,7 +588,7 @@ class App(BoardWorkbench):
 
         try:
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再换模型。")
+                raise RuntimeError("助手正在回复，等这句说完再换模型。")
             activate(model_id)
             self._bind_active_llm()
             return {"ok": True, "message": "已切换模型。", **public_catalog()}
@@ -620,7 +620,7 @@ class App(BoardWorkbench):
             return {"ok": False, "error": "模型保存参数必须是对象。"}
         try:
             if self._agent_running:
-                raise RuntimeError("凯尔希正在说话，等这句说完再保存。")
+                raise RuntimeError("助手正在回复，等这句说完再保存。")
             base_url = str(payload.get("base_url") or "").strip()
             model = str(payload.get("model") or "").strip()
             api_key = str(payload.get("api_key") or "").strip()
@@ -747,7 +747,7 @@ class App(BoardWorkbench):
 
     def generate_week_review(self) -> dict:
         if self._agent_running:
-            return {"ok": False, "error": "凯尔希正在说话，等这句说完再生成本周复盘。"}
+            return {"ok": False, "error": "助手正在回复，等这句说完再生成本周复盘。"}
         if self.agent is None:
             return {
                 "ok": False,

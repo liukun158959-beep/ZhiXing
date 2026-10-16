@@ -1,3 +1,4 @@
+import { usePageActive } from "./page-stack";
 import { useEffect, useRef, useState } from "react";
 import { rpc, type BackendInfo } from "./api";
 import { Markdown, MdLink } from "./Markdown";
@@ -11,6 +12,7 @@ const STATES: Record<string, string> = { queued: "排队中", running: "读取�
 const active = (task: VideoTask) => ["queued", "running", "cancelling"].includes(task.state);
 
 export function VideoPane({ info, debug = false }: { info: BackendInfo | null; debug?: boolean }) {
+  const pageActive = usePageActive();
   const [url, setUrl] = useState("");
   const [question, setQuestion] = useState("");
   const [tasks, setTasks] = useState<VideoTask[]>([]);
@@ -22,7 +24,7 @@ export function VideoPane({ info, debug = false }: { info: BackendInfo | null; d
   const mounted = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   useEffect(() => {
-    if (!info || debug) return;
+    if (!pageActive || !info || debug) return;
     let live = true;
     let pending = false;
     const poll = async () => {
@@ -42,7 +44,7 @@ export function VideoPane({ info, debug = false }: { info: BackendInfo | null; d
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [info, debug, selected, epoch]);
+  }, [pageActive, info, debug, selected, epoch]);
 
   async function run(method: string, args: Record<string, unknown>) {
     if (!info || debug || busy) return;
@@ -277,13 +279,14 @@ export function VideoSettings({ info, debug = false, expanded = false }: { info:
 export function TaskVideos({ info, taskId, state }: { info: BackendInfo | null; taskId: string; state: string }) {
   const activeTask = useRef(taskId);
   activeTask.current = taskId;
+  const pageActive = usePageActive();
   const [items, setItems] = useState<Source[]>([]);
   const [busy, setBusy] = useState("");
   const [saved, setSaved] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [absent, setAbsent] = useState<Record<string, boolean>>({});
   useEffect(() => {
-    if (!info || !taskId) return;
+    if (!pageActive || !info || !taskId) return;
     let live = true;
     let pending = false;
     setItems([]); setSaved({}); setError(""); setAbsent({});
@@ -299,7 +302,7 @@ export function TaskVideos({ info, taskId, state }: { info: BackendInfo | null; 
     void refresh();
     const timer = window.setInterval(() => void refresh(), 4000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [info, taskId, state]);
+  }, [pageActive, info, taskId, state]);
   async function save(source: Source) {
     if (!info || busy) return;
     setBusy(source.source_id); setError("");

@@ -56,7 +56,7 @@ export type PersonaPublic = {
 
 export const PERSONA_FIXTURE: PersonaPublic = {
   ok: true,
-  persona: "你是凯尔希。罗德岛的医生。",
+  persona: "你是 tebb，可靠、灵活的个人 Agent 工作伙伴。用中文直接回答，依据真实工具结果汇报。",
   max_steps: 8,
   nudge_enabled: true,
 };

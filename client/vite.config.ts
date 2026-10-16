@@ -29,6 +29,7 @@ export default defineConfig({
       input: {
         pet: resolve(__dirname, "index.html"),
         client: resolve(__dirname, "client.html"),
+        petChat: resolve(__dirname, "pet-chat.html"),
       },
     },
   },

@@ -1,3 +1,4 @@
+import { usePageActive } from "./page-stack";
 import { useEffect, useState } from "react";
 import { rpc, type BackendInfo } from "./api";
 import { Markdown } from "./Markdown";
@@ -17,6 +18,7 @@ const blankJob = (): Job => ({ name: "每日 AI/Agent 工程资讯", action: "ai
 const active = (task?: Task) => task && ["queued", "running", "cancelling"].includes(task.state);
 
 export function AutomationPane({ info, debug = false }: { info: BackendInfo | null; debug?: boolean }) {
+  const pageActive = usePageActive();
   const [form, setForm] = useState<Settings | null>(null);
   const [runs, setRuns] = useState<Run[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -28,7 +30,7 @@ export function AutomationPane({ info, debug = false }: { info: BackendInfo | nu
   const [notice, setNotice] = useState("");
   const run = runs.find(r => r.id === selected);
   useEffect(() => {
-    if (!info || debug) return;
+    if (!pageActive || !info || debug) return;
     let live = true, fetching = false;
     const refresh = async () => {
       if (fetching) return;
@@ -57,7 +59,7 @@ export function AutomationPane({ info, debug = false }: { info: BackendInfo | nu
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2500);
     return () => { live = false; window.clearInterval(timer); };
-  }, [info, debug, selected]);
+  }, [pageActive, info, debug, selected]);
 
   async function call(method: string, args: Record<string, unknown> = {}) {
     if (!info || debug || busy) return;

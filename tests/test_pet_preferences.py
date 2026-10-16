@@ -19,7 +19,9 @@ class PetPreferencesTests(unittest.TestCase):
     def test_default_has_no_live2d_dependency_and_saved_skin_survives_reload(self):
         self.assertEqual(pets.load()['skin'], 'paper')
         self.assertFalse(pets.load()['live2d_available'])
-        pets.save('sage')
+        pets.save('sage', 36)
+        self.assertEqual(pets.load()['size'],36)
+        with self.assertRaises(ValueError): pets.save('ink',80)
         self.assertEqual(pets.load()['skin'], 'sage')
         self.assertTrue((self.root / 'memory/pet-preferences.json').exists())
 

@@ -31,7 +31,7 @@ test('appearance saves only after a successful RPC and missing models remain dis
   assert.equal(button('凯尔希').props.disabled, true);
   await act(async () => button('鼠尾草').props.onClick());
   assert.equal(button('鼠尾草').props['aria-pressed'], true);
-  assert.deepEqual(calls.at(-1), { method: 'save_pet_preferences', args: { skin: 'sage' } });
+  assert.deepEqual(calls.at(-1), { method: 'save_pet_preferences', args: { skin: 'sage', size: 48 } });
   fail = true; await act(async () => button('墨黑').props.onClick());
   assert.equal(button('鼠尾草').props['aria-pressed'], true);
   assert(text(view.root.findByProps({ role: 'alert' })).includes('save failed'));
@@ -41,7 +41,7 @@ test('appearance saves only after a successful RPC and missing models remain dis
 test('built-in rendering has live hit bounds, click feedback and cleanup without Core or WebGL', () => {
   const nodes = [];
   const make = () => ({ style: {}, appendChild(node) { nodes.push(node); }, remove() { this.removed = true; },
-    getBoundingClientRect: () => ({ x: 20, y: 40, width: 160, height: 170 }),
+    getBoundingClientRect: () => ({ x: 20, y: 40, width: 48, height: 48 }),
     setAttribute(name, value) { this[name] = value; }, removeAttribute(name) { delete this[name]; } });
   global.document = { createElement: make };
   const canvas = { style: {}, parentElement: { appendChild(node) { nodes.push(node); } } };
@@ -49,7 +49,7 @@ test('built-in rendering has live hit bounds, click feedback and cleanup without
   const host = nodes.find(n => n.className === 'builtin-pet');
   assert(host.innerHTML.includes('鼠尾草'));
   assert.equal(canvas.style.visibility, 'hidden');
-  assert.deepEqual(pet.bounds(), { x: 38, y: 50, w: 124, h: 155 });
+  assert.deepEqual(pet.bounds(), { x: 20, y: 40, w: 48, h: 48 });
   pet.play('Tap'); assert.equal(host['data-reacting'], '');
   pet.destroy(); assert.equal(host.removed, true); assert.equal(canvas.style.visibility, '');
   assert.equal(pets.isBuiltinSkin('__proto__'), false);

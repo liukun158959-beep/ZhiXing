@@ -1,3 +1,4 @@
+import { usePageActive } from "./page-stack";
 import { useEffect, useState } from "react";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { Button } from "reend-components";
@@ -25,6 +26,7 @@ const FAILURE_KINDS: Record<string, string> = { network: "网络或服务", rate
   binding: "绑定身份不一致", user_auth: "用户授权", setup: "监听设置" };
 
 export function FeishuAgentPane({ info, debug = false }: { info: BackendInfo | null; debug?: boolean }) {
+  const pageActive = usePageActive();
   const [snap, setSnap] = useState<FeishuAgentStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +38,7 @@ export function FeishuAgentPane({ info, debug = false }: { info: BackendInfo | n
   const [message, setMessage] = useState("");
   const [check, setCheck] = useState("");
   useEffect(() => {
-    if (!info || debug) return;
+    if (!pageActive || !info || debug) return;
     let active = true;
     const refresh = async () => {
       try {
@@ -50,7 +52,7 @@ export function FeishuAgentPane({ info, debug = false }: { info: BackendInfo | n
     }).catch((err) => { if (active) setError(String(err)); });
     const timer = window.setInterval(() => void refresh(), 3000);
     return () => { active = false; window.clearInterval(timer); };
-  }, [info, debug]);
+  }, [pageActive, info, debug]);
 
   useEffect(() => {
     if (dirty) return;

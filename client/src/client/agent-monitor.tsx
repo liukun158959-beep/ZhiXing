@@ -1,3 +1,4 @@
+import { usePageActive } from "./page-stack";
 import { useEffect, useState } from "react";
 import { rpc, type BackendInfo, type ChatItem } from "./api";
 import { Markdown } from "./Markdown";
@@ -12,6 +13,7 @@ const STATES: Record<string, string> = { queued: "排队中", running: "执行�
 const active = (t: Task) => ["queued", "running", "cancelling"].includes(t.state);
 
 export function AgentMonitor({ info, debug = false }: { info: BackendInfo | null; debug?: boolean }) {
+  const pageActive = usePageActive();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, select] = useState("");
   const [detail, setDetail] = useState<Task | null>(null);
@@ -25,7 +27,7 @@ export function AgentMonitor({ info, debug = false }: { info: BackendInfo | null
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!info || debug) return;
+    if (!pageActive || !info || debug) return;
     let live = true;
     let loading = false;
     const refresh = async () => {
@@ -47,7 +49,7 @@ export function AgentMonitor({ info, debug = false }: { info: BackendInfo | null
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => { live = false; window.clearInterval(timer); };
-  }, [info, debug, selected, channel, dirty]);
+  }, [pageActive, info, debug, selected, channel, dirty]);
 
   async function run(method: string, args: Record<string, unknown>) {
     if (!info || debug || busy) return;

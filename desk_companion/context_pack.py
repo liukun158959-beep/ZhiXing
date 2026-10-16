@@ -176,7 +176,7 @@ def _summarize(pack: dict | None, folded: list[dict], complete) -> str:
     if folded:
         parts.append("还要收进去的原文：")
         for row in folded:
-            who = "博士" if row["role"] == "user" else "凯尔希"
+            who = "用户" if row["role"] == "user" else "助手"
             parts.append(f"{who}：{row['text']}")
     if not pack and not folded:
         raise RuntimeError("没有可以压缩的对话。")

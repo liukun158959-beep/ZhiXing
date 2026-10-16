@@ -43,10 +43,14 @@ const ICON_PATHS: Record<string, ReactNode> = {
   pet: <><path d="m5 4 6 5h3l5-5 1 12c-2 9-18 9-18 0Z" /><path d="M8 14h1m6 0h1m-6 4h4" /></>,
 };
 
+export function AppIcon({ name }: { name: string }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICON_PATHS[name] || ICON_PATHS.tasks}</svg>;
+}
+
 export function RailButton({ icon, label, active, onClick }: { icon: string; label: string; active?: boolean; onClick: () => void }) {
   const [tipY, setTipY] = useState(0);
   return <button onMouseEnter={event => setTipY(event.currentTarget.getBoundingClientRect().top + 17)} onFocus={event => setTipY(event.currentTarget.getBoundingClientRect().top + 17)} type="button" className={`cp-rail-button ${active ? "is-active" : ""}`} aria-label={label} aria-pressed={!!active} onClick={onClick}>
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{ICON_PATHS[icon] || ICON_PATHS.tasks}</svg>
+    <AppIcon name={icon} />
     <span className="cp-rail-tooltip" style={{ top: tipY }} aria-hidden="true">{label}</span>
   </button>;
 }

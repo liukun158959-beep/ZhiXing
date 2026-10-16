@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "仅本地 pet/main 页面可操作应用窗口；远程侧栏网页无本地权限",
-  "webviews": ["pet", "main"],
+  "description": "仅本地 pet/main/pet-chat 页面可操作应用窗口；远程侧栏网页无本地权限",
+  "webviews": ["pet", "main", "pet-chat"],
   "permissions": [
     "core:default",
     "core:window:allow-set-ignore-cursor-events",

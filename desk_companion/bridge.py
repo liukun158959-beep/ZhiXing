@@ -16,9 +16,9 @@ class Bridge:
         from .pet_preferences import load
         return load()
 
-    def save_pet_preferences(self, skin: str) -> dict:
+    def save_pet_preferences(self, skin: str, size=None) -> dict:
         from .pet_preferences import save
-        return save(skin)
+        return save(skin, size)
 
     def load_collaboration(self) -> dict:
         return self._host.collaboration.snapshot()
@@ -213,13 +213,24 @@ class Bridge:
         focus = getattr(self._host, "_focused_task", "")
         candidates = tasks.list()["items"]
         selected = next((t for t in candidates if t["id"] == focus and t["state"] in {"running", "queued", "cancelling"}), None)
-        selected = selected or next((t for t in candidates if t["state"] == "running"), None)
+        selected = selected or next((t for t in candidates if t["state"] in {"running","queued","cancelling"}), None)
+        if selected: self._host._pet_last_task = selected["id"]
+        if not selected:
+            retained = getattr(self._host, "_pet_last_task", "") or focus
+            selected = next((t for t in candidates if t["id"] == retained), None)
         if not selected:
             return {"ok": True, "enabled": True, "task": None}
         task = tasks.get(selected["id"])
-        status = next((e for e in reversed(task["events"]) if e["kind"] == "status"), None)
+        events = task["events"]
+        status = next((e for e in reversed(events) if e["kind"] == "status"), None)
+        visible = []
+        for e in events:
+            if e["kind"] in {"status","tool_start","tool_end","error"}:
+                data = e["data"]
+                visible.append(str(data) if isinstance(data,str) else f"{data.get('tool','')} · {data.get('status','')}".strip(' ·'))
         return {"ok": True, "enabled": True, "task": {"id": task["id"], "status": status["data"] if status else "",
-                                                        "seq": status["seq"] if status else 0}}
+                "state": task["state"], "text": task["text"][:200], "answer": task["answer"], "events": visible[-120:],
+                "seq": events[-1]["seq"] if events else 0}}
 
     def start_feishu_agent(self) -> dict:
         return self._host.feishu_agent.enable()

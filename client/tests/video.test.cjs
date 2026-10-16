@@ -17,7 +17,7 @@ function load(rpc, invoke = async () => {}) {
     if (method === 'load_wiki_connection' && !result.settings) return { settings: { wiki_url: '', video_parent_url: '', profile: '', auto_video_save: false } };
     return result;
   };
-  mod.require = id => id === '@tauri-apps/api/core' ? { invoke } : id === './api' ? { rpc: connectionRpc } : id === './Markdown' ? {
+  mod.require = id => id === './page-stack' ? { usePageActive: () => true } : id === '@tauri-apps/api/core' ? { invoke } : id === './api' ? { rpc: connectionRpc } : id === './Markdown' ? {
     MdLink: props => React.createElement('a', { href: props.href }, props.children),
     Markdown: props => React.createElement('p', null, props.text) } : original(id);
   mod._compile(ts.transpileModule(fs.readFileSync(filename, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS,

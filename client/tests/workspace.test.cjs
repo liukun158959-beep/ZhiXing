@@ -146,5 +146,5 @@ test('notebook titles are reading links, citations use complete stored Markdown,
 
 test('only trusted local webviews have capabilities, even when remote content shares the main window', () => {
   const capability = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../src-tauri/capabilities/default.json'), 'utf8'));
-  assert.deepEqual(capability.webviews, ['pet', 'main']); assert(!capability.windows?.length); assert(!capability.remote);
+  assert.deepEqual(capability.webviews, ['pet', 'main', 'pet-chat']); assert(!capability.windows?.length); assert(!capability.remote);
 });

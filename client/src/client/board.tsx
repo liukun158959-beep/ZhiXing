@@ -161,7 +161,7 @@ export function BoardPane(props: {
   if (!props.data) {
     return (
       <div data-board data-board-fetches={props.fetches}>
-        <p className="text-sm text-muted-foreground">{props.loading ? "正在读取今日看板…" : "打开看板页时再拉今日数据。"}</p>
+        <div className="mb-6"><h1 className="text-xl font-semibold">今日看板</h1><p className="text-sm text-muted-foreground">{props.loading ? "正在读取今日看板…" : "打开看板页时再拉今日数据。"}</p></div><div className="tebb-loading-grid" aria-busy="true" aria-label="正在读取看板内容">{["日程","待办"].map(title=><section key={title}><h2>{title}</h2><div className="tebb-skeleton"/><div className="tebb-skeleton"/><div className="tebb-skeleton"/></section>)}</div>
         <StatusGrid cards={props.statuses} onOpenFeishu={props.onOpenFeishu} />
       </div>
     );

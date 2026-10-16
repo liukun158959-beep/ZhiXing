@@ -16,7 +16,7 @@ import {
   pointerUp,
   tapBubble,
 } from "./pet-gesture";
-import { currentMotion, modelBounds, playMotion, startPet, startBuiltinPet } from "./pet-render";
+import { currentMotion, modelBounds, playMotion, startPet, startBuiltinPet, setPetWorking } from "./pet-render";
 import { backendInfo, rpc, type BackendInfo } from "./client/api";
 import type { SetupStatus } from "./client/onboarding";
 import { loadCubismCore, petErrorText } from "./pet-assets";
@@ -170,9 +170,8 @@ function onPointerUp(): void {
   endDragLock();
   if (!result.moved) {
     if (!petAvailable) return;
-    bubble = tapBubble(bubble, Date.now());
     renderMenu(false);
-    renderBubble();
+    void rust("set_pet_chat_visible", { visible: true }).catch(err=>showError(String(err)));
     void playMotion("Tap").catch((err: unknown) => showError(String(err)));
     return;
   }
@@ -194,6 +193,9 @@ function runMenu(action: string): void {
       },
     },
     hide: { label: "隐藏桌宠", run: () => rust("set_pet_visible", { visible: false }) },
+    chat: { label: "打开对话框", run: () => rust("set_pet_chat_visible", { visible: true }) },
+    close_chat: { label: "关闭对话框", run: () => rust("set_pet_chat_visible", { visible: false }) },
+    close_bubble: { label: "关闭提示", run: async () => { bubble = dismissBubble(bubble); renderBubble(); } },
     main: { label: "打开主窗口", run: () => rust("show_main") },
     quit: { label: "退出", run: () => rust("quit_app") },
   };
@@ -283,6 +285,7 @@ async function main(): Promise<void> {
   startBuiltinPet(canvas, 'paper'); petAvailable = true;
   let backend: BackendInfo | null = null;
   let lastSkin = 'paper';
+  let lastSize = 48;
   let changing = false;
   let reported = false;
   let renderedSkin = 'paper';
@@ -290,13 +293,13 @@ async function main(): Promise<void> {
     if (!backend || changing) return;
     changing = true;
     try {
-      const preferences = await rpc<{ skin: string }>(backend, 'load_pet_preferences');
-      if (preferences.skin !== lastSkin) {
-        lastSkin = preferences.skin; reported = false;
+      const preferences = await rpc<{ skin: string; size: number }>(backend, 'load_pet_preferences');
+      if (preferences.skin !== lastSkin || preferences.size !== lastSize) {
+        lastSkin = preferences.skin; lastSize = preferences.size; reported = false;
         bubble = dismissBubble(bubble); renderBubble(); renderMenu(false);
         petAvailable = false;
         try {
-          if (isBuiltinSkin(lastSkin)) { startBuiltinPet(canvas, lastSkin); renderedSkin = lastSkin; }
+          if (isBuiltinSkin(lastSkin)) { startBuiltinPet(canvas, lastSkin, lastSize); renderedSkin = lastSkin; }
           else {
             const setup = await rpc<SetupStatus>(backend, 'load_onboarding');
             const base = `http://127.0.0.1:${backend.port}/pet-assets/${backend.token}`;
@@ -321,20 +324,17 @@ async function main(): Promise<void> {
   await reportHitRegions();
   if (backend) {
     const info = backend;
-    let last = "";
     let polling = false;
     setInterval(async () => {
       void refreshSkin();
       if (polling) return;
       polling = true;
       try {
-        const progress = await rpc<{ enabled: boolean; task?: { id: string; seq: number; status: string } }>(info, "load_task_progress");
-        const key = progress.task ? `${progress.task.id}:${progress.task.seq}` : "";
-        if (progress.enabled && progress.task && key !== last && progress.task.status && !bubble.error) {
-          last = key;
-          bubble = { open: true, text: progress.task.status, error: false, until: Date.now() + BUBBLE_MS, index: -1 };
-          renderBubble();
-        }
+        const [progress, collaboration] = await Promise.all([
+          rpc<{ enabled: boolean; task?: { id: string; state: string } }>(info, "load_task_progress"),
+          rpc<{ state: { runs: {state:string}[] } }>(info, "load_collaboration"),
+        ]);
+        setPetWorking(!!progress.enabled && ((!!progress.task && ['running','queued','cancelling'].includes(progress.task.state)) || collaboration.state.runs.some(run=>['running','queued','waiting','pending','cancelling'].includes(run.state))));
       } catch { /* 接口重连期间保留现有形象，不反复弹出错误。 */ }
       finally { polling = false; }
     }, 2000);

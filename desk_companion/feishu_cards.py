@@ -42,7 +42,7 @@ class CardReply:
     def _key(self, suffix):
         return "dc-" + hashlib.sha256((self.key + suffix).encode()).hexdigest()[:40]
 
-    def start(self, title="凯尔希 · 任务回复", status="博士，已收到。正在准备处理。", answer=""):
+    def start(self, title="tebb · 任务回复", status="已收到。正在准备处理。", answer=""):
         if not self.card_id:
             value = api(self.profile, "POST", "/open-apis/cardkit/v1/cards", {"type": "card_json",
                         "data": json.dumps(card(title, status, answer, True), ensure_ascii=False)})
@@ -85,7 +85,7 @@ class CardReply:
         # 30KB 左右卡片限制留出结构空间，完整正文仍保留在桌宠和最终补充消息。
         self.operation("PUT", "/elements/task_answer/content", {"content": preview(answer)})
 
-    def finish(self, status, answer, failed=False, title="凯尔希 · 任务回复"):
+    def finish(self, status, answer, failed=False, title="tebb · 任务回复"):
         self.operation("PATCH", "/settings", {"settings": json.dumps({"config": {"streaming_mode": False}})})
         self.operation("PUT", "", {"card": {"type": "card_json", "data": json.dumps(card(title, status, preview(answer), failed=failed), ensure_ascii=False)}})
 

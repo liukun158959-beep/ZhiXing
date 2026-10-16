@@ -29,6 +29,7 @@ import { AgentMonitor } from "./agent-monitor";
 import { AgentDebugDialog } from "./agent-debug";
 import { WorkspaceRuns } from "./workspace-runs";
 import { WorkspaceRail } from "./workspace-shell";
+import { PageStack } from "./page-stack";
 import { PetSettings } from "./pet-settings";
 import { RailButton, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
 import { TopToolbar } from "./top-toolbar";
@@ -99,7 +100,7 @@ type Thread = {
 export function App() {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [showGuide, setShowGuide] = useState(false);
-  const [dark, setDark] = useState(true);
+  const [dark, setDark] = useState(() => { try { return localStorage.getItem("tebb.theme") !== "light"; } catch { return true; } });
   const [composeRequest, setComposeRequest] = useState<{ id: number; text: string }>();
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
   const [agentDebugOpen, setAgentDebugOpen] = useState(false);
@@ -257,6 +258,7 @@ export function App() {
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     document.documentElement.classList.toggle("light", !dark);
+    try { localStorage.setItem("tebb.theme", dark ? "dark" : "light"); } catch { /* theme stays active */ }
   }, [dark]);
 
   useEffect(() => {
@@ -2147,6 +2149,7 @@ export function App() {
           {!debugKind && <Suspense fallback={<p className="p-6">正在连接伙伴…</p>}><LiveCollaboration attachments={pickedAttachments} onAttach={() => setLocalDialog("file")} onDetach={id => setPickedAttachments(old => old.filter(a => a.id!==id))} onProject={openProject} onFile={() => setLocalDialog("file")} onTerminal={openTerminal} composeRequest={composeRequest} info={info} developerMode={developerMode} onDeveloperMode={changeDeveloperMode} /></Suspense>}
         </div>
         <div className="tebb-route-page" hidden={coreChat} style={{ display: coreChat ? "none" : "flex" }}>
+        <PageStack active={coreChat ? "" : pane === "chat" ? chatFace : pane}>
           {coreChat ? null : pane === "chat" && chatFace === "knowledge" ? (
             <section
               key="knowledge"
@@ -2536,6 +2539,7 @@ export function App() {
               />
             </section>
           )}
+        </PageStack>
         </div>
         </div>
         </SideWorkspace>
