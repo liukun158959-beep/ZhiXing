@@ -380,6 +380,11 @@
 .project-diff > pre { overflow: auto; }
 .project-file footer { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px; border-top: 1px solid hsl(var(--border)); }
 .project-panel > p, .project-empty { padding: 10px 12px; font-size: 11px; color: hsl(var(--muted-foreground)); }
+.project-empty h3 { font-size: 15px; color: hsl(var(--foreground)); margin: 12px 0; }
+.project-empty p { margin: 12px 0; line-height: 1.8; }
+.cp-project-context { display: flex; align-items: center; gap: 12px; padding: 4px 8px; color: hsl(var(--muted-foreground)); font-size: 11px; }
+.cp-project-context button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; text-align: left; }
+.cp-project-context small { flex-shrink: 0; }
 @container (max-width: 960px) { .cp-conversations { width: var(--tebb-section-width); }.cp-inspector { right: 0; top: 0; } }
 @container (max-width: 600px) { .cp-conversations { width: min(var(--tebb-section-width), calc(100% - 78px)); top: 0; }.cp-inspector { max-width: calc(100% - 20px); width: 330px; }.cp-context-actions { gap: 2px; }.cp-context-actions .cp-button { padding: 5px 7px; } }
 @media (max-width: 850px) { :root { --tebb-section-width: 190px; } .tebb-section-nav { width: var(--tebb-section-width); } .tebb-global-rail { width: 66px; } .tebb-global-rail .cp-rail-tooltip { left: 72px; } }

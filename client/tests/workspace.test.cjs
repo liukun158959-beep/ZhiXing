@@ -161,3 +161,18 @@ test('only trusted local webviews have capabilities, even when remote content sh
   const capability = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../src-tauri/capabilities/default.json'), 'utf8'));
   assert.deepEqual(capability.webviews, ['pet', 'main', 'pet-chat']); assert(!capability.windows?.length); assert(!capability.remote);
 });
+
+
+test('open folder intent reaches project panel once and closing the tab clears it',async()=>{
+ environment();const requests=[];
+ const {SideWorkspace,openProject,openProjectFolder}=load('side-workspace',{
+  ...mocks(async()=>{throw Error('Unexpected RPC');}),
+  './project-panel':{ProjectPanel:props=>{requests.push(props.folderRequest);return React.createElement('div',{'data-project-panel':''},'项目目录');}}
+ });
+ let view;await act(async()=>{view=create(React.createElement(SideWorkspace,workspaceProps));});
+ await act(async()=>openProjectFolder());assert.equal(requests.at(-1),1);
+ await act(async()=>view.root.findByProps({'aria-label':'关闭 项目文件'}).props.onClick());
+ await act(async()=>openProject());assert.equal(requests.at(-1),0);
+ assert.equal(view.root.findByType('textarea').props.defaultValue,'保留草稿');
+ await act(async()=>view.unmount());
+});

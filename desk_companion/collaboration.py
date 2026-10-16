@@ -26,6 +26,16 @@ TOOLS = {"联网搜索", "网页读取", "工作区读取", "文件编辑", "终
 AVATARS = {"spark", "fox", "cat", "owl"}
 
 
+def parse_route(text):
+    decision = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', text.strip()))
+    if not isinstance(decision, dict) or decision.get('mode') not in {'answer', 'task'}:
+        raise ValueError('无效路由模式')
+    content = decision.get('text') if decision['mode'] == 'answer' else decision.get('instructions')
+    if not isinstance(content, str) or not content.strip() or len(content) > 24000:
+        raise ValueError('无效路由内容')
+    return decision
+
+
 def migrate_companions(state):
     if state.get("companion_version", 0) >= 1:
         return
@@ -440,7 +450,7 @@ class Collaboration:
                     continue
                 manager = self._manager(run)
                 if run["state"] == "pending":
-                    if set(run['agent_config']['tools']) & {'文件编辑', '终端'} and any(other['id'] != run['id'] and other['state'] in {'queued','running','cancelling'} and other.get('workspace',{}).get('primary') == run['workspace'].get('primary') and set(other['agent_config']['tools']) & {'文件编辑','终端'} for other in state['runs']):
+                    if run.get('workspace', {}).get('primary') and set(run['agent_config']['tools']) & {'文件编辑', '终端'} and any(other['id'] != run['id'] and other['state'] in {'queued','running','cancelling'} and other.get('workspace',{}).get('primary') == run['workspace'].get('primary') and set(other['agent_config']['tools']) & {'文件编辑','终端'} for other in state['runs']):
                         run['status'] = '等待工作目录的编码任务完成'; continue
                     request = dict(workflow="collaboration", collab_path=str(self.path), collab_run=run["id"],
                         role=run["agent_config"], kind=run["kind"], model_id=run["model_id"], context=run["context"], workspace=run.get("workspace"), selection=run.get("selection", {}),
@@ -492,10 +502,8 @@ class Collaboration:
                     continue
                 if run['kind'] == 'route':
                     try:
-                        decision = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', run['answer'].strip()))
-                        if not isinstance(decision, dict) or decision.get('mode') not in {'answer','task'}: raise ValueError()
+                        decision = parse_route(run['answer'])
                         content = decision.get('text') if decision['mode']=='answer' else decision.get('instructions')
-                        if not isinstance(content,str) or not content.strip() or len(content)>24000: raise ValueError()
                     except (ValueError, TypeError):
                         self._finish(state,run,'failed','未取得有效的回答或任务路由，请重试'); continue
                     if run.get('multi_mention'):

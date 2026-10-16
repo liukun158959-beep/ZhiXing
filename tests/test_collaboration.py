@@ -154,6 +154,30 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual(child['kind'],'plan');self.assertEqual(child['parent'],root['id'])
         self.assertIn('研究并写成报告',child['input'] if 'input' in child else child['title'])
 
+    def test_route_repairs_plain_code_once_without_executing_tools(self):
+        request=self.request();request['kind']='route'
+        code='```python\ndef bubble_sort(a):\n    pass\n```';calls=[];events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(copy.deepcopy(messages)); self.assertEqual(tools,[])
+                return dict(message=dict(content=code if len(calls)==1 else json.dumps(dict(mode='answer',text=code))),usage={})
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(len(calls),2)
+        self.assertEqual(json.loads(events[-1][1])['text'],code)
+        self.assertFalse(any(k=='tool_start' for k,d in events))
+        self.assertTrue(any(k=='status' and '纠正' in d for k,d in events))
+
+    def test_invalid_route_repair_is_bounded_and_cannot_dispatch(self):
+        from desk_companion.collaboration_worker import PublicFailure
+        request=self.request();request['kind']='route';calls=[];events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append(1);return dict(message=dict(content='已帮你保存好了'),usage={})
+        with self.assertRaisesRegex(PublicFailure,'未执行工具'):
+            execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(len(calls),2)
+        self.assertFalse(any(k in {'tool_start','result'} for k,d in events))
+
     def test_multiple_mentions_limit_delegation_and_literal_code_is_not_a_mention(self):
         self.action(type='send',text='@阿探 @墨墨 一起研究',mode='auto',target='')
         self.service.tick(); root=self.state()['runs'][-1]
@@ -216,6 +240,39 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual([e[1]['exit_code'] for e in events if e[0]=='verification'],[1,1,0])
         self.assertIn('实际验证回执',events[-1][1])
         self.assertNotIn('fixture-key',json.dumps(events))
+
+    def test_coder_without_directory_can_generate_code_but_has_no_file_tools(self):
+        request = self.request(role=dict(id='coder',name='码可',role='编程伙伴',tools=['工作区读取','文件编辑','终端']))
+        request.update(text='帮我写一个冒泡排序', workspace={})
+        calls=[]; events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                calls.append((messages,tools)); on_delta('```python\ndef bubble_sort(a): return sorted(a)\n```')
+                return dict(message=dict(content='代码示例；尚未运行验证。'),usage=dict(prompt_tokens=10,completion_tokens=8))
+        with patch('desk_companion.project_workspace.lease') as lease:
+            execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        lease.assert_not_called()
+        self.assertEqual(len(calls),1); self.assertEqual(calls[0][1],[])
+        self.assertTrue(any(k=='token' for k,d in events))
+        self.assertIn('无需工作目录',calls[0][0][0]['content'])
+
+    def test_coder_cannot_invent_write_tool_without_directory_or_permission(self):
+        from desk_companion import project_workspace as project
+        folder=Path(self.temp.name)/'readonly'; folder.mkdir()
+        cfg=project.save(str(folder),[],False,False)['workspace']
+        request=self.request(role=dict(id='coder',name='码可',role='编程伙伴',tools=['工作区读取','文件编辑','终端']))
+        seen=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                seen.extend(t['function']['name'] for t in tools)
+                return dict(message=dict(tool_calls=[dict(id='write',function=dict(name='workspace_write',arguments='{"path":"a.py","text":"bad","revision":"new"}'))]),usage={})
+        for snapshot in ({},cfg):
+            with self.subTest(snapshot=snapshot):
+                request['workspace']=snapshot
+                with self.assertRaisesRegex(ValueError,'白名单'):
+                    execute(request,lambda *_:None,llm=LLM())
+                self.assertFalse((folder/'a.py').exists())
+        self.assertIn('workspace_read',seen); self.assertNotIn('workspace_write',seen); self.assertNotIn('workspace_run',seen)
 
     def test_duplicate_messages_and_separate_chat_queue(self):
         action = dict(type="send", conversation="group-research", text="比较材料", target="", mode="task", request_id="same-request-0001")

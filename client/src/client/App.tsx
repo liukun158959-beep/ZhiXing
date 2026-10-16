@@ -35,7 +35,7 @@ import { ModelNetworkSettings } from './model-network';
 import { RailButton, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
 import { TopToolbar } from "./top-toolbar";
 import { LocalSourcesDialog, type LocalSource } from "./local-sources";
-import { SideWorkspace, previewSource, openTerminal, openProject, togglePreview } from "./side-workspace";
+import { SideWorkspace, previewSource, openTerminal, openProject, openProjectFolder, togglePreview } from "./side-workspace";
 import { LoadingText } from "./loading-text";
 import { AutomationPane } from "./automation";
 import { VideoPane, WikiConnectionSettings } from "./video";
@@ -2131,7 +2131,7 @@ export function App() {
           model={modelItems.find(m => m.id === activeModelId)?.model ? `默认：${modelItems.find(m => m.id === activeModelId)?.model}` : ""} connected={!!info || !!debugKind} busy={busy || noteBusy} dark={dark}
           onTheme={() => setDark(!dark)} onNewChat={() => { setPane("collaboration"); window.dispatchEvent(new CustomEvent("tebb-new-chat")); }}
           onMonitor={() => setPane("monitor")} onVideo={() => setPane("video")} onDebug={() => { changeDeveloperMode(true); setAgentDebugOpen(true); }}
-          onFile={() => setLocalDialog("file")} onFolder={openProject} onTerminal={openTerminal} sidebarOpen={sidebarState.open} sidebarAvailable={sidebarState.available} onSidebarToggle={togglePreview} />
+          onFile={() => setLocalDialog("file")} onFolder={openProjectFolder} onTerminal={openTerminal} sidebarOpen={sidebarState.open} sidebarAvailable={sidebarState.available} onSidebarToggle={togglePreview} />
         {localDialog && <LocalSourcesDialog info={info} initialKind={localDialog} debug={!!debugPane()} onClose={() => { setLocalDialog(null); setLocalDialogMinimized(false); }} onPreview={previewSource} onMinimizedChange={setLocalDialogMinimized}
           onAttach={sources => { setPickedAttachments(sources); setLocalDialog(null); setPane("collaboration"); setNoteSessionId(null); }}
           onIndex={source => knowledgeCall("add_knowledge", { doc_id: `local:${source.id}`, label: source.name })} />}

@@ -322,6 +322,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
 
           </form>
           <div className="cp-composer-hint"><span>支持 Markdown · Enter 发送 · Shift + Enter 换行</span><span>{real ? `${recipient?.id === "coder" ? 12 : 6} 次调用预算 · 可随时停止` : "演示数据仅存于此设备"}</span></div>
+          {real && onProject && <div className="cp-project-context"><button type="button" className="cp-text-button" onClick={onProject} title={state.workspace?.primary || "选择本机项目文件夹，配置文件编辑和命令权限"}>▱ {state.workspace?.primary ? `工作目录：${state.workspace.primary}` : "打开文件夹 · 未设置工作目录"}</button><small>{state.workspace?.primary ? "目录与权限" : "生成代码无需目录；保存和运行代码需配置"}</small></div>}
           {(state.notice || storageError || live?.error) && <p className="cp-notice" role="status">{live?.error || storageError || state.notice}</p>}
         </div>
       </div>

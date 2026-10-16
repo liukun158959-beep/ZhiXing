@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 
-from .collaboration import parse_plan, updates, selected_materials
+from .collaboration import parse_plan, parse_route, updates, selected_materials
 from .memory import TZ
 
 
@@ -19,8 +19,7 @@ def execute(request, emit, llm=None, search=None, fetch=None):
     from . import project_workspace as project
     write_capable = request['kind'] == 'task' and bool(set(request['role'].get('tools', [])) & {'文件编辑', '终端'})
     cfg = request.get('workspace') or {}
-    if write_capable and not cfg.get('primary'): raise PublicFailure('请先在工作目录中配置主目录，并开启需要的编辑或命令权限。')
-    scope = project.lease(cfg['primary']) if write_capable else nullcontext()
+    scope = project.lease(cfg['primary']) if write_capable and cfg.get('primary') and (cfg.get('edit') or cfg.get('commands')) else nullcontext()
     with scope:
         if llm is None:
             from .collaboration_llm import CollaborationLLM
@@ -47,6 +46,7 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
         prompt += "\n你的私有偏好（仅适用于本轮，不自动公开原文）：\n" + role["memory"]
     if kind == "route":
         prompt += ('\n判断本次用户请求：普通交流直接回答；需要检索、读取附件/工作区、编辑、运行命令或执行技能时转后台任务。'
+            '编写代码示例、算法讲解或代码片段可直接回答，不要求工作目录；明确需要保存文件、修改项目或运行验证时才转执行任务。'
             '需要协作时保留全部目标和@成员要求，不在这里编造执行结果。'
             '仅返回严格JSON：直接回答用{"mode":"answer","text":"回答"}；执行用{"mode":"task","instructions":"用户完整目标、材料、限制和验收条件"}。')
     elif kind == "compress":
@@ -59,6 +59,9 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
             "\"instructions\":\"具体目标和完成条件\",\"depends_on\":null}]}。")
     elif kind == "task":
         prompt += "\n交付可阅读的Markdown成果，保留实际来源、证据缺口和适用限制，不要只返回执行承诺。"
+        prompt += ('\n编写代码示例或解释算法时，直接提供代码，无需工作目录。只有操作本地项目才需要目录与权限。'
+            '未提供workspace工具时不能读写或运行本地文件；若用户明确要求保存/修改/执行，告知点击顶部「打开文件夹」，再在「目录与权限」开启对应权限后重新发送。'
+            '不要把生成代码当成已保存、已运行或已通过测试。')
     else:
         prompt += "\n这是聊天消息，直接简洁回答。保持简洁，不声称已执行未调用的工具。"
     context = {"request": request["text"], "history": request.get("context", []), "members": request.get("members", []), "draft": request.get("draft", "")}
@@ -96,7 +99,7 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
         allowed_attachments.update(f['id'] for f in source.get('files', []))
     if kind == 'task':
         permissions = set(role.get('tools', []))
-        if '工作区读取' in permissions or permissions & {'文件编辑','终端'}:
+        if (request.get('workspace') or {}).get('primary') and ('工作区读取' in permissions or permissions & {'文件编辑','终端'}):
             for spec in project.tool_specs():
                 name = spec['function']['name']
                 if name == 'workspace_write' and ('文件编辑' not in permissions or not request.get('workspace',{}).get('edit')): continue
@@ -265,6 +268,19 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
                 parse_plan(text, {m["id"] for m in request["members"]})
             except (ValueError, TypeError):
                 messages.extend([{"role": "assistant", "content": text}, {"role": "user", "content": "委派格式无效，请修正为要求的JSON，成员和依赖必须有效。"}])
+                continue
+        if kind == 'route':
+            try:
+                parse_route(text)
+            except (ValueError, TypeError):
+                if turn >= budget - 1:
+                    raise PublicFailure('模型未返回有效的回答或任务路由，格式纠正后仍无效；未执行工具，请重试。')
+                messages.extend([dict(role='assistant', content=text), dict(role='user', content=(
+                    '上次输出未遵守路由协议。只修正格式，不执行工具，不增加任务。'
+                    '如果只是代码示例或普通回答，将原回答完整放入JSON字符串text中：{"mode":"answer","text":"原回答"}。'
+                    '只有需要实际检索、读写文件或运行命令才返回{"mode":"task","instructions":"完整执行目标"}。'
+                    '字符串中的换行、双引号与反斜杠必须正确转义。仅返回JSON对象。'))])
+                emit('status', '正在纠正模型回复格式，尚未执行工具。')
                 continue
         if kind=="task" and sources:
             audit=check_citations(text,sources)

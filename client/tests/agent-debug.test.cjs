@@ -89,8 +89,8 @@ test('toolbar is a text menu and attachment entries remain usable during agent w
     onNewChat(){},onMonitor(){},onVideo(){},onTheme(){},onDebug(){},onFile(){files++;},onFolder(){folders++;}}));});
   for(const b of view.root.findAllByType('button')) assert.ok(!b.props.className.includes('desk-btn'));
   const button=label=>view.root.findAllByType('button').find(b=>b.children.join('')===label);
-  assert.equal(button('文件').props.disabled,false);assert.equal(button('文件夹').props.disabled,false);
-  act(()=>button('文件').props.onClick());act(()=>button('文件夹').props.onClick());
+  assert.equal(button('文件').props.disabled,false);assert.equal(button('打开文件夹').props.disabled,false);
+  act(()=>button('文件').props.onClick());act(()=>button('打开文件夹').props.onClick());
   assert.equal(files,1);assert.equal(folders,1);act(()=>view.unmount());
 });
 

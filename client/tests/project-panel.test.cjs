@@ -89,3 +89,46 @@ test('browser capabilities cannot invoke local file RPC and code preview never e
  assert.equal(view.root.findAllByType('script').length,0);assert(text(view.toJSON()).includes('<script>'));
  await act(async()=>view.unmount());
 });
+
+
+test('opening a folder saves it immediately, clears old grants, and cancel preserves current config',async()=>{
+ const events=[];global.window={dispatchEvent:event=>events.push(event)};global.CustomEvent=class {constructor(type,options){this.type=type;this.detail=options.detail;}};
+ let current={...config};let selected=['E:/new-project'];const calls=[];
+ const api=backend();const rpc=async(i,m,args)=>{
+  calls.push(args);
+  if(args.operation==='load')return {ok:true,workspace:current};
+  if(args.operation==='pick')return {ok:true,paths:selected};
+  if(args.operation==='save'){current={...args,revision:'new-revision'};return {ok:true,workspace:current};}
+  return api.rpc(i,m,args);
+ };
+ const {ProjectPanel}=load(rpc);let view;
+ await act(async()=>{view=create(React.createElement(ProjectPanel,{info,folderRequest:1,onQuote(){}}));});
+ assert.equal(current.primary,'E:/new-project');assert.equal(current.edit,false);assert.equal(current.commands,false);assert.deepEqual(current.references,[]);
+ assert.equal(calls.filter(c=>c.operation==='pick').length,1);assert.equal(events.length,1);
+ assert(text(view.toJSON()).includes('只读浏览'));assert(text(view.toJSON()).includes('文件夹已打开'));
+ const checks=view.root.findAllByType('input').filter(node=>node.props.type==='checkbox');
+ await act(async()=>checks[0].props.onChange({target:{checked:true}}));
+ await act(async()=>view.root.findAllByType('input').filter(node=>node.props.type==='checkbox')[1].props.onChange({target:{checked:true}}));
+ await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
+ assert.equal(current.edit,true);assert.equal(current.commands,true);
+ selected=[];
+ await act(async()=>button(view,'切换文件夹').props.onClick());
+ assert.equal(calls.filter(c=>c.operation==='save').length,2);assert.equal(current.primary,'E:/new-project');
+ await act(async()=>view.unmount());
+});
+
+test('empty workspace offers folder picker and dirty files prevent changing directories',async()=>{
+ const empty={revision:'',primary:'',references:[],edit:false,commands:false};let pickCount=0;
+ const {ProjectPanel}=load(async(_i,_m,args)=>{if(args.operation==='load')return {ok:true,workspace:empty};if(args.operation==='pick'){pickCount++;return {ok:true,paths:[]};}throw Error('unexpected');});let view;
+ await act(async()=>{view=create(React.createElement(ProjectPanel,{info,onQuote(){}}));});
+ assert(text(view.toJSON()).includes('像 VS Code'));assert.equal(view.root.findAllByProps({'aria-label':'文件根目录'}).length,0);
+ await act(async()=>button(view,'选择并打开文件夹').props.onClick());assert.equal(pickCount,1);
+ await act(async()=>view.unmount());
+ const api=backend();const Panel=load(api.rpc).ProjectPanel;
+ await act(async()=>{view=create(React.createElement(Panel,{info,onQuote(){}}));});
+ await act(async()=>button(view,'· a.py').props.onClick());await act(async()=>button(view,'编辑').props.onClick());
+ await act(async()=>view.root.findByProps({'aria-label':'文件编辑内容'}).props.onChange({target:{value:'unsaved'}}));
+ await act(async()=>button(view,'切换文件夹').props.onClick());
+ assert(!api.calls.some(c=>c.operation==='pick'));assert(text(view.toJSON()).includes('请先保存或撤销'));
+ await act(async()=>view.unmount());
+});

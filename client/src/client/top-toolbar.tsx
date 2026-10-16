@@ -22,7 +22,7 @@ export function TopToolbar({ title, model, connected, busy, dark, onTheme, onNew
       <button className="desk-menu-item" onClick={onVideo}>视频</button>
       <button className="desk-menu-item" disabled={!connected} onClick={onTerminal}>终端</button>
       <button className="desk-menu-item" disabled={!connected} onClick={onFile}>文件</button>
-      <button className="desk-menu-item" disabled={!connected} onClick={onFolder}>文件夹</button>
+      <button className="desk-menu-item" disabled={!connected} onClick={onFolder} title="选择本机项目文件夹，打开文件树与权限设置">打开文件夹</button>
       <button className="desk-menu-item" aria-label="切换主题" onClick={onTheme}>{dark ? "浅色" : "深色"}</button>
 
     </nav>

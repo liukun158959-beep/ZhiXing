@@ -11,7 +11,7 @@ export function CodePreview({ text }: { text: string }) {
   return <pre className="project-code">{tokens.map((part, i) => <span key={i} className={/^['"]/.test(part) ? "code-string" : /^(\/\/|#)/.test(part) ? "code-comment" : /^(import|from|return|def|class|function|const|let|var|if|else|for|while|async|await|export|try|catch|raise|true|false|null|None|True|False)$/.test(part) ? "code-keyword" : undefined}>{part}</span>)}{text.length > 120000 && "\n…预览已截断，编辑与保存仍保留完整文本。"}</pre>;
 }
 
-export function ProjectPanel({ info, onQuote, onDirty }: { onDirty?: (value: boolean) => void; info: BackendInfo | null; onQuote: (text: string) => void }) {
+export function ProjectPanel({ info, onQuote, onDirty, folderRequest = 0 }: { folderRequest?: number; onDirty?: (value: boolean) => void; info: BackendInfo | null; onQuote: (text: string) => void }) {
   const [config, setConfig] = useState<ProjectConfig>({ revision: "", primary: "", references: [], edit: false, commands: false });
   const [form, setForm] = useState(config), [configure, setConfigure] = useState(false);
   const [root, setRoot] = useState("main"), [folder, setFolder] = useState("");
@@ -21,6 +21,7 @@ export function ProjectPanel({ info, onQuote, onDirty }: { onDirty?: (value: boo
   const [error, setError] = useState(""), [notice, setNotice] = useState(""), [busy, setBusy] = useState(false);
   const current = files.find(f => f.root+":"+f.path === active);
   const alive = useRef(true), generation = useRef(0), filesRef = useRef(files), configRef = useRef(config);
+  const [loaded, setLoaded] = useState(false), handledRequest = useRef(0), picking = useRef(false);
   filesRef.current = files; configRef.current = config;
   const reader = useRef<HTMLDivElement>(null), editor = useRef<HTMLTextAreaElement>(null);
   const api = async <T,>(operation: string, args = {}): Promise<T> => {
@@ -30,13 +31,17 @@ export function ProjectPanel({ info, onQuote, onDirty }: { onDirty?: (value: boo
   };
   useEffect(() => {
     alive.current = true;
-    void api<{ workspace: ProjectConfig }>("load").then(result => { if (alive.current) { setConfig(result.workspace); setForm(result.workspace); setConfigure(!result.workspace.primary); } }).catch(e => { if (alive.current) setError(String(e)); });
+    setLoaded(false);
+    void api<{ workspace: ProjectConfig }>("load").then(result => { if (alive.current) { setConfig(result.workspace); setForm(result.workspace); setLoaded(true); } }).catch(e => { if (alive.current) setError(String(e)); });
     return () => { alive.current = false; generation.current++; };
   }, [info?.port, info?.token]);
   useEffect(() => {
+    if (loaded && folderRequest > handledRequest.current) { handledRequest.current = folderRequest; void pick(true); }
+  }, [loaded, folderRequest]);
+  useEffect(() => {
     if (!config.primary && root === "main") { setEntries([]); return; }
     let current = true; const stamp = config.revision;
-    void api<{ entries: Entry[]; limited?: boolean }>("tree", { root_id: root, relative: folder }).then(result => { if (current && configRef.current.revision === stamp) { setEntries(result.entries); setNotice(result.limited ? "此目录仅展示前400项，可进入子目录继续浏览。" : ""); } }).catch(e => { if (current) setError(String(e)); });
+    void api<{ entries: Entry[]; limited?: boolean }>("tree", { root_id: root, relative: folder }).then(result => { if (current && configRef.current.revision === stamp) { setEntries(result.entries); if (result.limited) setNotice("此目录仅展示前400项，可进入子目录继续浏览。"); } }).catch(e => { if (current) setError(String(e)); });
     return () => { current = false; };
   }, [config.revision, root, folder]);
   useEffect(() => { onDirty?.(files.some(f => f.draft !== f.original)); }, [files, onDirty]);
@@ -76,20 +81,33 @@ export function ProjectPanel({ info, onQuote, onDirty }: { onDirty?: (value: boo
     } catch(e) { if(alive.current) setError(String(e)); }
     finally { if(alive.current) setBusy(false); }
   }
-  async function saveConfig() {
-    if (files.some(f => f.draft !== f.original)) { setError("请先保存或撤销打开文件的编辑，再切换工作目录。"); return; }
+  async function saveConfig(value = form, opened = false) {
+    if (filesRef.current.some(f => f.draft !== f.original)) { setError("请先保存或撤销打开文件的编辑，再切换工作目录。"); return; }
     setBusy(true); setError("");
     try {
-      const result = await api<{ workspace: ProjectConfig }>("save", { primary: form.primary, references: form.references.filter(Boolean), edit: form.edit, commands: form.commands });
-      if (alive.current) { setConfig(result.workspace); setForm(result.workspace); setFiles([]); setActive(""); setRoot("main"); setFolder(""); setConfigure(false); window.dispatchEvent(new CustomEvent("tebb-workspace-changed",{detail:result.workspace})); setNotice("工作目录与权限已保存，新任务使用本次配置。"); }
+      const result = await api<{ workspace: ProjectConfig }>("save", { primary: value.primary, references: value.references.filter(Boolean), edit: value.edit, commands: value.commands });
+      if (alive.current) { generation.current++; setConfig(result.workspace); setForm(result.workspace); setFiles([]); setActive(""); setRoot("main"); setFolder(""); setConfigure(opened); window.dispatchEvent(new CustomEvent("tebb-workspace-changed",{detail:result.workspace})); setNotice(opened ? "文件夹已打开，可直接浏览。需要伙伴修改或验证代码时，请选择下面的权限并保存，再发送任务。" : "工作目录与权限已保存，新任务使用本次配置。"); }
     } catch (e) { if (alive.current) setError(String(e)); }
     finally { if (alive.current) setBusy(false); }
   }
-  async function pick() {
+  async function pick(openNow = false) {
+    if (picking.current || busy) return;
+    if (filesRef.current.some(f => f.draft !== f.original)) { setError("请先保存或撤销打开文件的编辑，再切换工作目录。"); return; }
+    picking.current = true;
     setBusy(true); setError("");
-    try { const result = await api<{ paths: string[] }>("pick", { request_id: crypto.randomUUID().replace(/-/g, "") }); if (alive.current && result.paths?.length) setForm(old => ({ ...old, primary: result.paths[0] })); }
+    try {
+      const result = await api<{ paths: string[] }>("pick", { request_id: crypto.randomUUID().replace(/-/g, "") });
+      if (alive.current && result.paths?.length) {
+        const primary = result.paths[0];
+        if (openNow) {
+          // A different directory never inherits write or command grants.
+          const value = primary === configRef.current.primary ? configRef.current : { ...configRef.current, primary, references: [], edit: false, commands: false };
+          await saveConfig(value, true);
+        } else setForm(old => ({ ...old, primary, edit: primary === configRef.current.primary && old.edit, commands: primary === configRef.current.primary && old.commands }));
+      }
+    }
     catch (e) { if (alive.current) setError(String(e)); }
-    finally { if (alive.current) setBusy(false); }
+    finally { picking.current = false; if (alive.current) setBusy(false); }
   }
   function quote(selection = false) {
     if (!current) return;
@@ -106,15 +124,17 @@ export function ProjectPanel({ info, onQuote, onDirty }: { onDirty?: (value: boo
     setNotice(content.length > 3200 ? "已引用前3200字到草稿，完整文件可由获准的伙伴按路径读取。" : "引用已加入草稿，尚未发送。");
   }
   return <section className="project-panel" aria-label="项目文件工作区">
-    <header><span title={config.primary}>工作目录 · {config.primary || "未设置"}</span><button onClick={() => setConfigure(!configure)}>目录与权限</button></header>
+    <header><span title={config.primary}>工作目录 · {config.primary || "尚未打开文件夹"}</span><button disabled={busy || !loaded} onClick={() => void pick(true)}>{config.primary ? "切换文件夹" : "打开文件夹"}</button><button onClick={() => setConfigure(!configure)}>目录与权限</button></header>
+    {config.primary && <p role="status">{config.edit ? "允许编辑" : "只读浏览"} · {config.commands ? "允许运行命令" : "未授权命令"}</p>}
     {configure && <form className="project-config" onSubmit={e => { e.preventDefault(); void saveConfig(); }}>
-      <label>可编辑主目录<div><input aria-label="主目录" value={form.primary} onChange={e => setForm({ ...form, primary: e.target.value })} placeholder="本机项目文件夹绝对路径" /><button type="button" onClick={() => void pick()} disabled={busy}>选择文件夹</button></div></label>
+      <p>主目录就是你的项目文件夹，例如 D:\Projects\my-app。打开即可浏览；下面的权限分别决定伙伴能否修改文件、运行测试。</p>
+      <label>主目录<div><input aria-label="主目录" value={form.primary} onChange={e => setForm({ ...form, primary: e.target.value, edit: false, commands: false })} placeholder="本机项目文件夹绝对路径" /><button type="button" onClick={() => void pick()} disabled={busy}>选择文件夹</button></div></label>
       <label>只读参考目录（每行一个，最多4个）<textarea rows={2} value={form.references.join("\n")} onChange={e => setForm({ ...form, references: e.target.value.split("\n") })} /></label>
       <label><input type="checkbox" checked={form.edit} onChange={e => setForm({ ...form, edit: e.target.checked })} />允许获准伙伴编辑主目录文件</label>
       <label><input type="checkbox" checked={form.commands} onChange={e => setForm({ ...form, commands: e.target.checked })} />允许本地命令（可修改主目录，WSL 沙箱无网络）</label>
       <button type="submit" disabled={busy}>保存目录与权限</button>
     </form>}
-    <div className="project-body"><aside className="project-tree"><select aria-label="文件根目录" value={root} onChange={e => { setRoot(e.target.value); setFolder(""); }}><option value="main">主目录</option>{config.references.map((p,i) => <option key={i} value={`ref-${i}`}>只读 · {p.split(/[\\/]/).pop()}</option>)}</select>
+    {!config.primary ? <div className="project-empty"><h3>打开你的项目文件夹</h3><p>像 VS Code 一样，选择文件夹后在左侧浏览文件，点击文件即可预览。文件仍保存在原位置。</p><button disabled={busy || !loaded} onClick={() => void pick(true)}>选择并打开文件夹</button><p>只想让伙伴写一段代码或解释算法？直接发消息即可，不必打开文件夹。</p></div> : <div className="project-body"><aside className="project-tree"><select aria-label="文件根目录" value={root} onChange={e => { setRoot(e.target.value); setFolder(""); }}><option value="main">主目录</option>{config.references.map((p,i) => <option key={i} value={`ref-${i}`}>只读 · {p.split(/[\\/]/).pop()}</option>)}</select>
       <div><button disabled={!folder} onClick={() => setFolder(folder.split("/").slice(0,-1).join("/"))}>↑ 上级</button><button onClick={() => setFolder("")}>根目录</button><button onClick={() => { setConfig(c => ({ ...c, revision: c.revision })); void api<{ entries: Entry[] }>("tree", { root_id: root, relative: folder }).then(r => setEntries(r.entries)).catch(e => setError(String(e))); }}>刷新</button></div>
       <small>{folder || "/"}</small><input aria-label="筛选当前目录" placeholder="筛选当前目录" value={filter} onChange={e => setFilter(e.target.value)} />
       {entries.filter(e => e.name.toLowerCase().includes(filter.toLowerCase())).map(e => <button className="project-tree-entry" key={e.path} onClick={() => void open(e)}>{e.directory ? "▸" : "·"} {e.name}</button>)}
@@ -122,7 +142,7 @@ export function ProjectPanel({ info, onQuote, onDirty }: { onDirty?: (value: boo
       {current ? <><div className="project-file-actions"><span>{current.root}/{current.path} · {current.editable ? "可编辑" : "只读"}</span><button aria-pressed={mode === "read"} onClick={() => setMode("read")}>预览</button><button onClick={() => setMode("source")}>源码</button>{current.editable && <button aria-pressed={mode === "edit"} onClick={() => setMode("edit")}>编辑</button>}<button disabled={busy} onClick={() => void reloadFile()}>读取最新版本</button><button aria-pressed={mode === "diff"} onClick={() => setMode("diff")}>差异</button>{current.editable && <button disabled={busy || current.draft === current.original} onClick={() => void saveFile()}>保存</button>}</div>
       <div className="project-reader" ref={reader} onScroll={e => patch({ scroll: e.currentTarget.scrollTop })}>{current.kind === "image" ? <img alt={current.name} src={current.data} /> : mode === "edit" ? <textarea ref={editor} aria-label="文件编辑内容" spellCheck={false} value={current.draft} onChange={e => patch({ draft: e.target.value })} /> : mode === "diff" ? <><p>保存前原文／当前草稿；保存后显示本次实际差异。</p>{current.draft !== current.original ? <div className="project-diff"><CodePreview text={current.original} /><CodePreview text={current.draft} /></div> : <CodePreview text={current.diff || "暂无修改差异"} />}</> : mode === "read" && /\.(md|markdown)$/i.test(current.name) ? <Markdown text={current.draft} /> : <CodePreview text={current.draft} />}</div>
       {current.kind === "text" && <footer><button onMouseDown={e => e.preventDefault()} onClick={() => quote(true)}>引用选中文字</button><button onClick={() => quote()}>引用文件到草稿</button>{current.draft !== current.original && <button onClick={() => patch({ draft: current.original })}>撤销未保存修改</button>}</footer>}</> : <p className="project-empty">从左侧目录选择文件预览。聊天草稿会保留。</p>}
-    </div></div>
+    </div></div>}
     {busy && <p role="status">正在处理…</p>}{error && <p role="alert" className="cp-error">{error}</p>}{notice && <p role="status">{notice}</p>}
   </section>;
 }
