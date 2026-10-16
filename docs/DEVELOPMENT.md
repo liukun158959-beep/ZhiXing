@@ -1,0 +1,78 @@
+# 开发 tebb
+
+产品介绍见 [README](../README.md)，使用和配置见 [首次使用](GETTING_STARTED.md)。本页面向需要运行源码、理解项目结构或提交改动的开发者。
+
+## 从源码运行
+
+需要 Python 3.11+、Node / pnpm、Rust、Tauri 的 Windows 构建依赖和 Atlas 源码。Atlas 仓库目前非公开，需要已有源码或访问权限；普通体验可使用 Windows 便携版。
+
+```powershell
+git clone https://github.com/liukun158959-beep/ZhiXing.git
+cd ZhiXing
+$atlasSource = 'E:\path\to\Atlas'
+python -m pip install -e $atlasSource
+python -m pip install -e .
+cd client
+pnpm install
+pnpm tauri dev
+```
+
+## 如何工作
+
+```mermaid
+flowchart TD
+    UI[React + TypeScript 工作台] --> Shell[Tauri 2 / Rust 壳]
+    Shell -->|启动本机后端| API[Python localhost WebSocket API]
+    UI <-->|进程 Token 认证 / 流式事件| API
+    API --> Queue[SQLite 任务队列]
+    Queue --> Worker[独立 Python 工作进程]
+    Worker --> Agent[Atlas Agent / 工具调用循环]
+    Agent <-->|OpenAI 兼容接口| LLM[模型服务]
+    Agent --> Tools[飞书 / GitHub / 搜索 / Skill / MCP]
+    API --> RAG[本地向量召回 + 重排 / 来源引用]
+    Worker -->|认证本地 RPC| Terminal[共享终端管理服务]
+    Terminal --> Sandbox[WSL + bubblewrap / PTY]
+    Worker --> Debug[实际 HTTP 请求与响应记录]
+```
+
+桌面与飞书共用 Agent 业务逻辑；普通对话和笔记问答采用不同入口。普通对话按用户选择附加技能、文档和工具，笔记模式先限制来源，再检索与生成。LLM 的流式输出由后端转为 WebSocket 事件，客户端更新气泡与任务状态。
+
+| 模块 | 主要代码 | 职责 |
+| --- | --- | --- |
+| 客户端与侧栏 | `client/src/client/` | 会话、菜单、引用、文件、网页、终端与调试界面 |
+| 本机 API | `desk_companion/local_api/` | Token 认证、RPC 白名单、任务及流式事件 |
+| Agent 组装 | `assistant.py`、`local_api/host.py` | 工具注册、上下文拼接、MCP 生命周期与 Atlas 调用 |
+| 任务可靠性 | `tasks.py`、`task_worker.py`、`task_process.py` | 排队、独立执行、超时、进程回收与恢复 |
+| 知识与记忆 | `knowledge.py`、`context_pack.py`、`facts.py` | 文档切分、检索重排、上下文压缩与可追溯事实 |
+| 视频分析 | `video.py`、`video_analysis.py`、`video_archive.py` | 字幕、分段检查点、学习笔记及归档回执 |
+| 可观测与执行 | `agent_debug.py`、`terminal.py`、`sandbox_driver.py` | 全量模型载荷记录、命令管理与 Linux 沙箱策略 |
+
+## 能力边界
+
+- **面向个人本机使用。** 尚未提供多租户权限、服务集群或生产负载评测；不宣称高并发或企业级 SLA。
+- **检索在本机完成，回答调用模型服务。** 索引是 JSON 中保存的向量、点积召回与模型重排，当前没有使用 FAISS、Milvus 等向量数据库。只有明确选择的资料才进入对应请求。
+- **视频理解依赖字幕。** 没有字幕时不能分析全片，也没有声称识别视频画面；长视频失败可保留分段笔记继续处理。
+- **MCP 适配有兼容范围。** 当前客户端使用 stdio、Content-Length 分帧与固定初始化版本；尚未适配标准换行分帧和 Streamable HTTP，不能保证兼容任意 MCP Server。
+- **沙箱隔离取决于策略与内核。** WSL 本身不能替代隔离策略；bubblewrap 关闭网络、限制挂载与资源，自检失败拒绝执行。外部 MCP / CLI 不自动获得相同沙箱保护。
+- **记忆与调试可追溯。** 对话压缩保留原始记录，模型写入事实需引用本轮用户原话。调试只能显示服务实际返回的内容，不能还原未返回的内部推理。
+
+源码默认使用本机项目数据，发布版沿用 `%LOCALAPPDATA%/DeskCompanion`。凭据、记忆、权重和 Live2D 资源不进 Git。备份与升级参见 [使用说明](GETTING_STARTED.md)。
+
+## 开发与验证
+
+```powershell
+# 在项目根目录执行
+python -m unittest discover -s tests -v
+
+# 客户端
+cd client
+pnpm test
+pnpm exec tsc --noEmit
+pnpm build
+cd src-tauri
+cargo check --locked
+```
+
+普通测试使用临时数据和模拟服务；真实沙箱验证需显式开启环境开关，命令见 [终端说明](TERMINAL.md)。界面截图使用当前客户端组件与匿名演示资料，终端截图执行了真实沙箱命令。
+
+提交遵循本仓库约定：每项改动关联 issue，提交说明使用 `Fixes #编号: 中文说明。`，直接推送 `main`。旧入口与历史文档保留，当前行为以代码和最新功能说明为准。

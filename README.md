@@ -1,150 +1,118 @@
-# tebb
+<div align="center">
 
-**面向极客的 Agent 工作台：把对话、资料、工具与执行结果放进同一个工作区。**
+# tebb.
 
-基于 Atlas 的 Windows 个人 Agent 工作台。用自然语言处理日程与待办、检索个人知识库、学习视频、整理飞书文档，并在隔离终端验证结果。桌宠是可选入口：内置48px圆点支持调节大小及纸白、鼠尾草、墨黑三种配色，也可自行配置凯尔希 Live2D 形象。
+### 一起研究，一起动手
 
-项目现已更名为 **tebb**（原知行 · ZhiXing），统一使用小写。后续产品方向是面向极客、云端常驻并可连接本机的 Agent；当前已发布版本仍以本机运行。名称与兼容约定见 [品牌说明](docs/BRAND.md)。
+面向极客的 Agent 伙伴工作区
 
-[下载 Windows 版](https://github.com/liukun158959-beep/ZhiXing/releases) · [开始使用](docs/GETTING_STARTED.md) · [功能与设置](docs/WORKBENCH_REFERENCE.md) · [反馈问题](https://github.com/liukun158959-beep/ZhiXing/issues)
+[![Release](https://img.shields.io/github/v/release/liukun158959-beep/ZhiXing?style=flat-square)](https://github.com/liukun158959-beep/ZhiXing/releases)
+[![Windows](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4?style=flat-square)](https://github.com/liukun158959-beep/ZhiXing/releases)
+[![Status](https://img.shields.io/badge/status-early%20preview-8D9B82?style=flat-square)](#项目状态)
 
-![对话与资料侧栏](docs/images/workspace.png)
+[下载体验](https://github.com/liukun158959-beep/ZhiXing/releases) · [快速开始](#快速开始) · [使用文档](docs/GETTING_STARTED.md) · [反馈与建议](https://github.com/liukun158959-beep/ZhiXing/issues)
 
-*真实 React 客户端截图，使用匿名演示数据；示例回答、模型与用量不代表性能测评。*
+</div>
 
-## 能做什么
+tebb 把有个性的 AI 伙伴、你的项目文件和正在做的事放进同一个工作区。你可以与一位伙伴聊，也可以把几位伙伴拉进协作群：查资料、讨论思路、动手写代码，再把成果留下来继续使用。
 
-| 场景 | 你可以这样使用 | 实现特点 |
-| --- | --- | --- |
-| 个人任务助手 | “查看今天的日程和未完成待办，整理工作总结” | Atlas 工具调用、按需读取 Skill、本轮接入 MCP 工具、流式反馈 |
-| 伙伴聊天（源码核心工作区） | 与小缇、阿探、墨墨私聊，或在群里协作研究与成文 | 固定左侧导航和顶部工具栏、统一发送/@/Skill、历史续聊、授权项目文件预览编辑、编码伙伴与实际验证；见[使用说明](docs/LOCAL_COLLABORATION.md) |
-| 有来源的知识问答 | 导入飞书文档，勾选来源提问并保存笔记 | 本地 BGE 向量召回 + CrossEncoder 重排，点击引用查看 Markdown 原文 |
-| 视频学习与归档 | 发送 Bilibili / YouTube 链接，生成学习笔记 | 读取实际字幕、章节分段、断点笔记、自动归档飞书，嵌入原视频网页 |
-| 对话旁阅读与浏览 | 打开文件、文件夹或回答中的网页 | 共用可收起侧栏；阅读不自动发给模型，点击后才加入本轮资料 |
-| 可观察的 Agent 执行 | 查看每一步调用与实际发送的模型上下文 | 任务时间线、完整请求/响应、原始 SSE、相邻调用差异与 JSON 导出 |
-| 隔离命令执行 | 让 Agent 运行 Linux 命令，查看输出和结果文件 | xterm PTY、WSL + bubblewrap、默认关闭网络、独立工作目录与停止回执 |
-| 飞书与定时工作流 | 在本人飞书私聊使用助手，定时整理资讯 | 本地长连接、文档/知识库接入、归档回执、失败恢复和重复写入防护 |
+接入自己的模型，从一个问题开始。需要执行时，在聊天里跟进任务、查看改动和验证结果，随时补充要求或停止。
 
-### 知识库与笔记
+## 和伙伴一起做些什么
 
-先检索再回答，把引用、原文和已存笔记一起放在工作区。支持文档切分策略调整、来源范围选择、检索候选与重排结果查看，以及 Markdown / 飞书导出。
+### 组一支自己的 Agent 小队
 
-![笔记问答、已存笔记与原文引用](docs/images/notebook.png)
+小缇帮你梳理目标，阿探查找资料，墨墨整理表达，码可动手编码。每位伙伴有自己的头像、性格、模型与工具配置，也可以创建你自己的伙伴。
 
-*真实笔记界面，文档与笔记均为演示数据。*
+私聊深入一个问题，协作群处理需要分工的目标。通过 `@` 指定参与者，用 `/` 选择 Skill，附上文件再一起讨论；伙伴目录与对话记录分开，旧话题随时续聊。
 
-### 工具执行有进度，也能停止
+> 「@阿探 @墨墨 查一查这个项目的技术路线，核实一手资料，再整理成研究报告。」
 
-同一会话按顺序执行，不同会话按配置并发。Agent 任务在独立进程运行；取消或超时会停止对应进程树，保留部分答案与工具记录。继续任务前核对已有写入，避免重复创建文档或重复执行命令。
+### 打开文件夹，让代码落到项目里
 
-侧栏终端与 Agent 使用同一个执行服务。可查看实时输出、退出码与历史记录，复制已选择附件，在命令停止后预览结果文件。
+像使用熟悉的编辑器一样，点击 **打开文件夹**，浏览文件、预览 Markdown、查看代码。为项目授予需要的编辑和命令权限后，码可可以修改文件、运行构建或测试，并把真实结果带回聊天。
 
-<img src="docs/images/terminal.png" width="440" alt="终端侧栏：真实沙箱命令输出与退出码" />
+你能看到文件差异、命令输出和退出码，也能在对话旁打开终端继续检查。只想要一段代码示例时，直接提问即可，无需配置目录。
 
-*真实终端组件及开发机沙箱执行结果；截图为组件独立验证界面。*
+> 「修复这个函数，让已有测试通过；不要修改测试，完成后告诉我改了什么、验证了什么。」
 
-### 看清每一次模型调用
+### 让资料与笔记接着参与下一次对话
 
-连续点击顶部版本号 **5 次** 打开 Agent 调试窗口：查看实际发送的完整消息、工具 Schema、参数、模型返回、原始事件流与耗时；比较相邻请求，也可按需调用模型协助解读。记录保存在本机，不记录鉴权头和 Cookie；正文可能包含个人资料，导出前应自行检查。详见 [调试说明](docs/AGENT_DEBUG.md)。
+在聊天旁阅读文档、网页和项目文件，按需把内容加入本轮资料。知识库支持基于选定来源提问、查看原文引用和保存笔记。
 
-## 开始使用
+伙伴的回答可以收藏到笔记，笔记也能作为完整资料带回伙伴聊天。一次研究留下的内容，可以继续用来写作、讨论或执行下一步任务。
 
-### Windows 便携版
+> 「根据这份笔记梳理待办，再帮我补充需要验证的问题。」
 
-1. 从 [Releases](https://github.com/liukun158959-beep/ZhiXing/releases) 下载 Windows x64 ZIP，完整解压后运行 `ZhiXing.exe`。
-2. 首次引导填写模型 Base URL、准确的模型 ID 和 API Key，点击“测试连通”。模型需兼容 OpenAI Chat Completions，工具执行需支持 tool calling。
-3. 按需配置飞书、GitHub、知识库模型或桌宠素材。基础对话无需启用所有集成。
+<details>
+<summary>查看笔记与引用界面</summary>
 
-需要 Windows 10/11 x64 和 WebView2 Runtime；便携版不需要自行安装 Python、Node 或 Rust。测试模型连接会发送真实请求并可能计费。
+![笔记、已选来源与原文引用](docs/images/notebook.png)
 
-**版本说明：** 最新公开包为原品牌的 **v0.2.3**，入口仍为 `ZhiXing.exe`。本文介绍当前 `main` 源码；tebb 更名、新侧栏、菜单调整及隔离终端尚未重新打包，公开包功能以对应 Release 说明为准。
+*界面演示使用匿名资料；截图来自已有笔记组件。*
 
-### 从源码运行
+</details>
 
-需要 Python 3.11+、Node / pnpm、Rust 与 Tauri 的 Windows 构建依赖，以及本地 Atlas 源码。**Atlas 仓库当前为私有，源码运行需要已有源码或仓库访问权限；无权限用户可使用 Windows 便携版。**
+### 把学习与协作接进日常
 
-```powershell
-git clone https://github.com/liukun158959-beep/ZhiXing.git
-cd ZhiXing
-$atlasSource = 'E:\path\to\Atlas' # 改成你已有的 Atlas 源码路径
-python -m pip install -e $atlasSource
-python -m pip install -e .
-cd client
-pnpm install
-pnpm tauri dev
-```
+- **视频学习**：读取 Bilibili / YouTube 的可用字幕与章节，整理学习笔记，长视频分段处理。
+- **飞书协作**：在飞书与机器人继续对话，把内容整理为文档，连接知识库和多维表格。
+- **定时工作**：配置资讯整理与推送，在本机运行期间按计划执行。
+- **轻巧桌面入口**：一个可换色、可调大小的圆形小伴，单击打开浮动聊天。桌宠是工作区的可选入口，关闭浮窗后任务仍可继续。
 
-| 可选能力 | 额外条件 | 指南 |
-| --- | --- | --- |
-| 飞书私聊、文档和日程 | `lark-cli`、应用机器人能力及对应用户权限 | [飞书 Agent](docs/FEISHU_AGENT.md) |
-| GitHub 查询 | `gh`，已登录可访问的账号 | [功能参考](docs/WORKBENCH_REFERENCE.md) |
-| 本地知识库问答 | sentence-transformers 运行库、Embedding 与 Reranker 权重 | 客户端“知识库”页下载并检查 |
-| 视频字幕 | yt-dlp 依赖；部分视频需在设置中配置登录或网络 | [视频总结](docs/VIDEO_SUMMARIES.md) |
-| 终端沙箱 | WSL Ubuntu、Python3、bubblewrap 与可用的 user namespace | [终端与执行边界](docs/TERMINAL.md) |
-| 可换肤桌宠 | 内置小伴无需素材；凯尔希需自备 Cubism Core 与授权形象素材 | [使用说明](docs/GETTING_STARTED.md) |
+## 为喜欢掌控工具的人设计
 
-模型权重、飞书 CLI、GitHub CLI、Live2D 素材不随公开包提供。旧版 Electron / pywebview 入口仍保留，运行方式见 [功能参考](docs/WORKBENCH_REFERENCE.md)。
+| 你关心的事 | tebb 的做法 |
+| --- | --- |
+| 用什么模型 | 自带 API Key，接入兼容 Chat Completions 的模型服务，为伙伴配置不同模型 |
+| Agent 正在做什么 | 流式进度、任务时间线、工具回执，支持补充与停止 |
+| 文件会改在哪里 | 一个主项目目录与只读参考目录，编辑和命令分别授权 |
+| 结果是否真的验证过 | 展示实际文件差异、测试命令与退出码，区分生成代码和运行验证 |
+| 如何扩展 | 选择 Skill、配置工具，按现有兼容范围接入 MCP |
+| 如何排查问题 | 开发者模式查看模型请求、上下文、工具定义与各阶段耗时 |
 
-## 如何工作
+## 快速开始
 
-```mermaid
-flowchart TD
-    UI[React + TypeScript 工作台] --> Shell[Tauri 2 / Rust 壳]
-    Shell -->|启动本机后端| API[Python localhost WebSocket API]
-    UI <-->|进程 Token 认证 / 流式事件| API
-    API --> Queue[SQLite 任务队列]
-    Queue --> Worker[独立 Python 工作进程]
-    Worker --> Agent[Atlas Agent / 工具调用循环]
-    Agent <-->|OpenAI 兼容接口| LLM[模型服务]
-    Agent --> Tools[飞书 / GitHub / 搜索 / Skill / MCP]
-    API --> RAG[本地向量召回 + 重排 / 来源引用]
-    Worker -->|认证本地 RPC| Terminal[共享终端管理服务]
-    Terminal --> Sandbox[WSL + bubblewrap / PTY]
-    Worker --> Debug[实际 HTTP 请求与响应记录]
-```
+### 下载 Windows 便携版
 
-桌面与飞书共用 Agent 业务逻辑；普通对话和笔记问答采用不同入口。普通对话按用户选择附加技能、文档和工具，笔记模式先限制来源，再检索与生成。LLM 的流式输出由后端转为 WebSocket 事件，客户端更新气泡与任务状态。
+1. 打开 [Releases](https://github.com/liukun158959-beep/ZhiXing/releases)，下载 Windows x64 ZIP 并完整解压。
+2. 运行包内入口程序，保留旁边的 `runtime` 文件夹。
+3. 按首次引导填写模型 **API 地址、模型 ID、API Key**，保存并测试连接，然后开始聊天。
+4. 想操作本地项目时，点击顶部 **打开文件夹**，按需设置编辑与命令权限。
 
-| 模块 | 主要代码 | 职责 |
-| --- | --- | --- |
-| 客户端与侧栏 | `client/src/client/` | 会话、菜单、引用、文件、网页、终端与调试界面 |
-| 本机 API | `desk_companion/local_api/` | Token 认证、RPC 白名单、任务及流式事件 |
-| Agent 组装 | `assistant.py`、`local_api/host.py` | 工具注册、上下文拼接、MCP 生命周期与 Atlas 调用 |
-| 任务可靠性 | `tasks.py`、`task_worker.py`、`task_process.py` | 排队、独立执行、超时、进程回收与恢复 |
-| 知识与记忆 | `knowledge.py`、`context_pack.py`、`facts.py` | 文档切分、检索重排、上下文压缩与可追溯事实 |
-| 视频分析 | `video.py`、`video_analysis.py`、`video_archive.py` | 字幕、分段检查点、学习笔记及归档回执 |
-| 可观测与执行 | `agent_debug.py`、`terminal.py`、`sandbox_driver.py` | 全量模型载荷记录、命令管理与 Linux 沙箱策略 |
+> 本文介绍当前 `main`。**v0.3.0 正在准备发布**；当前公开包为 v0.2.3，入口为 `ZhiXing.exe`，功能与本文中的新版工作区存在差异。v0.3.0 将使用 `tebb.exe`。
 
-## 能力边界
+支持 Windows 10/11 x64，需要 WebView2 Runtime。便携版无需自行安装 Python、Node 或 Rust；模型服务需自行准备，API 调用可能产生费用。工具执行需要模型支持 tool calling。
 
-- **面向个人本机使用。** 尚未提供多租户权限、服务集群或生产负载评测；不宣称高并发或企业级 SLA。
-- **检索在本机完成，回答调用模型服务。** 索引是 JSON 中保存的向量、点积召回与模型重排，当前没有使用 FAISS、Milvus 等向量数据库。只有明确选择的资料才进入对应请求。
-- **视频理解依赖字幕。** 没有字幕时不能分析全片，也没有声称识别视频画面；长视频失败可保留分段笔记继续处理。
-- **MCP 适配有兼容范围。** 当前客户端使用 stdio、Content-Length 分帧与固定初始化版本；尚未适配标准换行分帧和 Streamable HTTP，不能保证兼容任意 MCP Server。
-- **沙箱隔离取决于策略与内核。** WSL 本身不能替代隔离策略；bubblewrap 关闭网络、限制挂载与资源，自检失败拒绝执行。外部 MCP / CLI 不自动获得相同沙箱保护。
-- **记忆与调试可追溯。** 对话压缩保留原始记录，模型写入事实需引用本轮用户原话。调试只能显示服务实际返回的内容，不能还原未返回的内部推理。
+飞书、知识库、视频登录和 WSL 终端都可以后续按需配置，参见 [首次使用](docs/GETTING_STARTED.md)。从源码运行请看 [开发指南](docs/DEVELOPMENT.md)；完整源码启动依赖 Atlas，目前需要已有源码或访问权限。
 
-源码默认使用本机项目数据，发布版沿用 `%LOCALAPPDATA%/DeskCompanion`。凭据、记忆、权重和 Live2D 资源不进 Git。备份与升级参见 [使用说明](docs/GETTING_STARTED.md)。
+## 项目状态
 
-## 开发与验证
+tebb 正在快速迭代，当前以 **Windows 本机运行**为主。会话和配置保存在本机；回答与工具所需上下文会发送给你选择的模型服务。
 
-```powershell
-# 在项目根目录执行
-python -m unittest discover -s tests -v
+- 定时任务依赖本机程序运行，关机后不会在云端继续执行。
+- 视频总结依赖实际取得的字幕，无字幕时会说明内容缺口。
+- 文件与命令执行需配置目录和权限；终端依赖 WSL 与 bubblewrap。
+- 模型服务与网络仍可能超时，已完成的工具操作不会因超时自动撤销或重做。
 
-# 客户端
-cd client
-pnpm test
-pnpm exec tsc --noEmit
-pnpm build
-cd src-tauri
-cargo check --locked
-```
+云端常驻、远程连接与更多运行环境属于后续探索。当前进展与已知问题见 [Issues](https://github.com/liukun158959-beep/ZhiXing/issues)，实测边界见 [性能记录](docs/PERFORMANCE.md)。
 
-普通测试使用临时数据和模拟服务；真实沙箱验证需显式开启环境开关，命令见 [终端说明](docs/TERMINAL.md)。界面截图使用当前客户端组件与匿名演示资料，终端截图执行了真实沙箱命令。
+## 文档与参与
 
-提交遵循本仓库约定：每项改动关联 issue，提交说明使用 `Fixes #编号: 中文说明。`，直接推送 `main`。旧入口与历史文档保留，当前行为以代码和最新功能说明为准。
+| 想做什么 | 从这里开始 |
+| --- | --- |
+| 安装、连接模型和设置工作目录 | [首次使用](docs/GETTING_STARTED.md) · [伙伴工作区](docs/LOCAL_COLLABORATION.md) |
+| 连接飞书、文档与机器人 | [飞书接入](docs/FEISHU_AGENT.md) |
+| 阅读视频、管理字幕与登录 | [视频学习](docs/VIDEO_SUMMARIES.md) |
+| 了解终端、权限和开发者模式 | [终端说明](docs/TERMINAL.md) · [Agent 调试](docs/AGENT_DEBUG.md) |
+| 运行源码、提交改动或构建版本 | [开发指南](docs/DEVELOPMENT.md) · [贡献指南](CONTRIBUTING.md) · [发布流程](docs/RELEASING.md) |
 
-## 文档入口
+欢迎提交使用反馈、复现步骤、功能建议，以及文档和代码改进。提交问题前请隐藏 API Key、登录信息和私人对话。
 
-[首次使用](docs/GETTING_STARTED.md) · [完整功能参考](docs/WORKBENCH_REFERENCE.md) · [飞书接入](docs/FEISHU_AGENT.md) · [视频学习](docs/VIDEO_SUMMARIES.md) · [Agent 调试](docs/AGENT_DEBUG.md) · [终端与沙箱](docs/TERMINAL.md)
+tebb 原名知行 · ZhiXing；保留仓库地址与历史下载链接，更新时沿用原有用户数据。[品牌与兼容说明](docs/BRAND.md)
+
+## 许可证与致谢
+
+本仓库目前尚未添加 `LICENSE`，暂不声明具体开源许可证。Atlas 和第三方依赖的授权以各自项目为准；模型权重与 Live2D 形象素材不随仓库提供。
+
+感谢 Atlas 及本项目使用的 Tauri、React、xterm.js、bubblewrap、yt-dlp 等项目。
