@@ -425,6 +425,17 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual(request['text'],goal)
         self.assertNotIn('尚未授权',request['text'])
 
+    def test_child_keeps_assigned_partner_model_and_unassigned_partner_inherits_turn_model(self):
+        with patch('desk_companion.model_catalog.require_item',side_effect=lambda ident:{**MODEL,'id':ident,'model':ident}):
+            writer=next(a for a in self.state()['agents'] if a['id']=='writer')
+            self.action(type='agent',agent={**writer,'model':'custom-writer-model'})
+            self.action(type='send',text='研究并写报告',mode='task',target='',model_id='turn-default')
+            self.service.tick();root=self.state()['runs'][0]
+            self.work.complete('collab:'+root['id']+':0',self.plan());self.service.tick()
+            children=self.state()['runs'][1:]
+            self.assertEqual(next(r for r in children if r['agent']=='research')['model_id'],'turn-default')
+            self.assertEqual(next(r for r in children if r['agent']=='writer')['model_id'],'custom-writer-model')
+
     def test_parallel_collection_fans_in_all_evidence_before_delivery(self):
         state=self.action(type='agent',agent={**self.state()['agents'][0],'tools':['扩展只读工具']})
         # Include three workers; the coordinator may also participate when explicitly @ selected.

@@ -575,8 +575,9 @@ class Collaboration:
                         if stage=='deliver': edges=list(range(len(children)))
                         deps=[children[index]['id'] for index in edges]
                         dependency=deps[-1] if deps else None
+                        assigned=next(a for a in state['agents'] if a['id']==plan['agent_id'])
                         child = self._run(state, conversation, plan["agent_id"], plan["instructions"], parent=run["id"], dependency=dependency,
-                            context=run["context"] + [dict(sender="user", text=run["input"]), *[dict(sender="user", text=t) for t in run["updates"]]],model_id=run['model_id'])
+                            context=run["context"] + [dict(sender="user", text=run["input"]), *[dict(sender="user", text=t) for t in run["updates"]]],model_id='' if assigned.get('model') else run['model_id'])
                         child.update(dependencies=deps,objective=run['input'],stage=stage,required_sources=plan.get('required_sources',[]))
                         topics=list(dict.fromkeys(plan.get('source_topics',[])))
                         child.update(source_topics=topics,search_limit=max(2,len(topics)),fetch_limit=max(4,len(topics)*2))
