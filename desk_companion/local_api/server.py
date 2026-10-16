@@ -31,6 +31,7 @@ RPC_METHODS = frozenset({
     "load_video_settings", "save_video_settings", "list_task_videos", "export_task_video",
     "load_wiki_connection", "save_wiki_connection",
     "load_onboarding", "complete_onboarding", "report_pet_status", "check_updates",
+    "load_pet_preferences", "save_pet_preferences",
     "list_agent_tasks", "get_agent_task", "cancel_agent_task", "continue_agent_task", "save_agent_task_settings", "load_task_progress",
     "list_debug_calls", "get_debug_call", "set_debug_recording", "explain_debug_call",
     "load_board", "delete_agenda", "delete_task", "create_agenda", "load_log_errors", "load_skills",

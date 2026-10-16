@@ -4,7 +4,7 @@ import type { ModelList } from "./settings";
 
 export type SetupStatus = {
   ok: boolean; show: boolean; configured: boolean; data_dir: string; assets_dir: string;
-  checks: { github: boolean; feishu: boolean; knowledge: boolean; pet: boolean };
+  checks: { github: boolean; feishu: boolean; knowledge: boolean; pet: boolean; live2d?: boolean };
 };
 
 export function SetupGuide(props: {
@@ -85,7 +85,7 @@ export function SetupGuide(props: {
               { title: "飞书日程、任务和文档", state: props.status.checks.feishu ? "已检测到 lark-cli，登录态在飞书页查看" : "需要安装 lark-cli", text: "安装后先执行 lark-cli config init，再到「飞书」页登录并授权需要的范围。", pane: "feishu" as const },
               { title: "GitHub 看板", state: props.status.checks.github ? "已检测到 gh，仍需登录" : "需要 GitHub CLI", text: "安装 gh 并执行 gh auth login，再打开「看板 → GitHub」。只读取当前登录账号可见的仓库。", pane: "board" as const, sub: "github" },
               { title: "知识库", state: props.status.checks.knowledge ? "检索运行库已安装" : "需要额外安装检索运行库", text: "在左侧「知识库」选择并下载向量 / 重排模型，再添加文档。首次下载较大；便携版按使用说明安装知识库扩展。", pane: "board" as const, sub: "knowledge" },
-              { title: "桌宠形象与外观", state: props.status.checks.pet ? "已检测到形象与 Core" : "尚未添加 Live2D 素材", text: `在 ${props.status.assets_dir} 放入 Core/live2dcubismcore.js 与 skins/kaltsit/kaltsit.model3.json 及引用素材，重启后加载。素材未包含在公开发布包中；主题、背景和提示词在设置页调整。`, pane: "settings" as const },
+              { title: "桌宠形象与外观", state: "内置小伴可直接使用", text: `设置页可切换纸白、鼠尾草与墨黑皮肤，无需下载素材。若要使用凯尔希，在 ${props.status.assets_dir} 放入 Core/live2dcubismcore.js 与 skins/kaltsit/kaltsit.model3.json 及引用素材，再从设置页选择；外观不会更改 Agent 人格。`, pane: "settings" as const },
             ].map((item) => <div key={item.title} className="rounded-lg border border-border p-4"><div className="flex items-center justify-between gap-3"><strong>{item.title}</strong><button type="button" className={button} disabled={busy} onClick={() => void finish(item.pane, item.sub)}>前往设置</button></div><p className="text-xs text-primary">{item.state}</p><p className="mt-1 text-muted-foreground">{item.text}</p></div>)}
             <p><strong>MCP 与技能：</strong>在用户目录新建 mcp.json 配置外部工具，在对话输入框通过 / 选择；技能随发布包提供。配置示例见使用说明。</p>
             <p className="break-all"><strong>配置、聊天和日志目录：</strong><br />{props.status.data_dir}</p>

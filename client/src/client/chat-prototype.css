@@ -6,7 +6,7 @@
   position: relative; display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0;
   height: 100%; overflow: hidden; container-type: inline-size;
   background: hsl(var(--background)); color: hsl(var(--foreground));
-  font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 13px; line-height: 1.6;
+  font-family: inherit; font-size: 14px; line-height: 1.65;
 }
 .cp-root button, .cp-root input, .cp-root textarea, .cp-root select { font: inherit; color: inherit; }
 .cp-root button { cursor: pointer; transition: background .15s, color .15s; }
@@ -343,8 +343,8 @@
 .cp-parameter-debug input { width: 65px; background: hsl(var(--background)); }
 .cp-task pre { white-space: pre-wrap; max-height: 300px; overflow: auto; font: 10px/1.7 Consolas, monospace; }
 .cp-task :is(details,pre), .cp-composer select { overflow-wrap: anywhere; }
-.cp-root, .tebb-section-nav, .main-workspace section { animation: tebb-enter .18s ease; }
-@keyframes tebb-enter { from { opacity: .5; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
+@keyframes tebb-enter { from { opacity: .94; } to { opacity: 1; } }
 .side-workspace { position: relative; }
 .side-workspace.has-preview { grid-template-columns: minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
 .workspace-preview { position: absolute; right: 0; top: 0; bottom: 0; width: min(720px, max(420px, var(--preview-width))); max-width: calc(100% - 30px); z-index: 22; border-left: 1px solid hsl(var(--border)); box-shadow: -12px 0 35px #0003; animation: tebb-enter .18s ease; }
@@ -399,3 +399,44 @@
 .cp-standalone .tebb-global-rail .cp-rail-tooltip { position: fixed; left: 84px; right: auto; }
 
 .cp-message-usage { display: block; font-size: 9px; color: var(--cp-muted); margin-top: 7px; }
+
+/* All routes share one stable slot; never animate layout or nested sections. */
+.tebb-content-slot, .tebb-route-page { display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.tebb-content-slot { position: relative; }
+.tebb-route-page > section { min-width: 0; min-height: 0; animation: tebb-enter .12s ease-out; }
+.tebb-route-page > section:not(.flex) { scrollbar-gutter: stable; }
+.cp-embedded { background: transparent; }
+.cp-conversations, .tebb-section-nav { background: hsl(var(--card) / .8); }
+.cp-root :is(.cp-button,.cp-send,.cp-conversation,.cp-history-row,.cp-composer,.cp-artifact-link,.cp-task,.cp-form input,.cp-form textarea,.cp-form select) { border-radius: var(--radius, 0px); }
+.cp-chat-header, .cp-goal { background: hsl(var(--card) / .45); }
+.cp-sidebar-title, .tebb-section-nav > strong { font-weight: 600; letter-spacing: .02em; }
+.cp-list-heading { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; }
+.cp-conversation { border-left: 2px solid transparent; }
+.cp-conversation.is-selected, .cp-history-row.is-selected { border-left: 2px solid var(--cp-accent); background: hsl(var(--primary) / .08); }
+.cp-conversation strong { font-size: 13px; font-weight: 600; }
+.cp-conversation small, .cp-history-row { font-size: 12px !important; }
+.cp-chat-title h1 { font-size: 18px; }
+.cp-chat-title div > span, .cp-message-author, .cp-message-reference, .cp-composer-controls label, .cp-composer-controls select { font-size: 12px !important; }
+.cp-message-content > p, .cp-markdown, .cp-composer textarea { font-size: 14px; line-height: 1.85; }
+.cp-message-author span, .cp-composer-hint, .cp-live-bar, .cp-date-line { font-size: 11px; letter-spacing: normal; }
+.cp-message-user .cp-message-content > p { border-radius: var(--radius, 0px); background: hsl(var(--card) / .8); }
+.cp-composer { border-color: hsl(var(--border)); box-shadow: none; background: hsl(var(--card) / .92); }
+.cp-button, .cp-send { min-height: 32px; font-size: 12px !important; }
+.cp-task { border-left: 2px solid hsl(var(--primary) / .5); background: hsl(var(--card) / .8); }
+@media (prefers-reduced-motion: reduce) { .tebb-route-page > section { animation: none; } }
+
+.pet-settings > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.pet-settings p { color: hsl(var(--muted-foreground)); font-size: 12px; margin-top: 6px; }
+.pet-settings p[role="alert"] { color: hsl(var(--destructive)); }
+.pet-skin-options { display: grid; grid-template-columns: repeat(auto-fit,minmax(116px,1fr)); gap: 12px; margin-top: 18px; }
+.pet-skin-options button { display: flex; flex-direction: column; align-items: center; padding: 12px; border: 1px solid hsl(var(--border)); background: hsl(var(--background) / .5); cursor: pointer; }
+.pet-skin-options button[aria-pressed="true"] { border-color: hsl(var(--primary)); background: hsl(var(--primary) / .06); }
+.pet-skin-options button:focus-visible { outline: 2px solid hsl(var(--primary)); outline-offset: 3px; }
+.pet-skin-options button:disabled { opacity: .45; cursor: default; }
+.pet-skin-options img, .pet-live2d-mark { width: 100px; height: 106px; }
+.pet-live2d-mark { display: grid; place-items: center; color: hsl(var(--muted-foreground)); font: 38px Georgia,serif; }
+.pet-skin-options strong { font-size: 13px; }
+.pet-skin-options small { color: hsl(var(--muted-foreground)); font-size: 11px; margin-top: 4px; }
+
+.cp-message-user .cp-markdown { border-radius: var(--radius, 0px); background: hsl(var(--card) / .8); }
+.tebb-section-nav button, .cp-rail-button { border-radius: var(--radius, 0px); }

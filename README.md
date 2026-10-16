@@ -2,7 +2,7 @@
 
 **面向极客的 Agent 工作台：把对话、资料、工具与执行结果放进同一个工作区。**
 
-基于 Atlas 的 Windows 个人 Agent 工作台。用自然语言处理日程与待办、检索个人知识库、学习视频、整理飞书文档，并在隔离终端验证结果。凯尔希 Live2D 桌宠是可选入口，未配置素材也能使用主工作台。
+基于 Atlas 的 Windows 个人 Agent 工作台。用自然语言处理日程与待办、检索个人知识库、学习视频、整理飞书文档，并在隔离终端验证结果。桌宠是可选入口：内置小伴支持纸白、鼠尾草、墨黑三种皮肤，也可自行配置凯尔希 Live2D 形象。
 
 项目现已更名为 **tebb**（原知行 · ZhiXing），统一使用小写。后续产品方向是面向极客、云端常驻并可连接本机的 Agent；当前已发布版本仍以本机运行。名称与兼容约定见 [品牌说明](docs/BRAND.md)。
 
@@ -81,7 +81,7 @@ pnpm tauri dev
 | 本地知识库问答 | sentence-transformers 运行库、Embedding 与 Reranker 权重 | 客户端“知识库”页下载并检查 |
 | 视频字幕 | yt-dlp 依赖；部分视频需在设置中配置登录或网络 | [视频总结](docs/VIDEO_SUMMARIES.md) |
 | 终端沙箱 | WSL Ubuntu、Python3、bubblewrap 与可用的 user namespace | [终端与执行边界](docs/TERMINAL.md) |
-| Live2D 桌宠 | 自行提供 Cubism Core 与授权形象素材 | [使用说明](docs/GETTING_STARTED.md) |
+| 可换肤桌宠 | 内置小伴无需素材；凯尔希需自备 Cubism Core 与授权形象素材 | [使用说明](docs/GETTING_STARTED.md) |
 
 模型权重、飞书 CLI、GitHub CLI、Live2D 素材不随公开包提供。旧版 Electron / pywebview 入口仍保留，运行方式见 [功能参考](docs/WORKBENCH_REFERENCE.md)。
 

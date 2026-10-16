@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { lazy, Suspense } from "react";
 import "reend-components/styles.css";
 import "./index.css";
+import "./chat-prototype.css";
 
 const root = document.getElementById("root");
 if (!root) {

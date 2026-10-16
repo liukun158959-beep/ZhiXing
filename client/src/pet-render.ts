@@ -1,14 +1,23 @@
-// 宠物渲染：kaltsit Live2D（迁移自 pet-ui/src/renderer/src/pet.js，改写为 TS）。
-// 弃用 guga 静态帧。对外暴露 modelBounds() 供 Rust 穿透 hit-test。
-import * as PIXI from "pixi.js";
+// 内置矢量 / 可选 Live2D 渲染；共享动作和 Rust 穿透命中区域。
+import type * as PIXI from "pixi.js";
 import type { Live2DModel } from "pixi-live2d-display/cubism4";
-
-(window as unknown as { PIXI: typeof PIXI }).PIXI = PIXI;
+import { mountBuiltinPet, type BuiltinSkin } from './builtin-pet';
 
 let app: PIXI.Application | null = null;
 let model: Live2DModel | null = null;
 let lastMotion = "";
 let live2d: typeof import("pixi-live2d-display/cubism4") | null = null;
+let builtin: ReturnType<typeof mountBuiltinPet> | null = null;
+
+function stopPet() {
+  builtin?.destroy(); builtin = null;
+  app?.destroy(false, { children: true, texture: true, baseTexture: true });
+  app = null; model = null; lastMotion = '';
+}
+
+export function startBuiltinPet(canvas: HTMLCanvasElement, skin: BuiltinSkin) {
+  stopPet(); builtin = mountBuiltinPet(canvas, skin); lastMotion = 'Idle';
+}
 
 const HEADROOM = 72;
 
@@ -24,6 +33,7 @@ function waitFrames(n: number): Promise<void> {
 }
 
 export async function startPet(canvas: HTMLCanvasElement, modelUrl: string): Promise<void> {
+  stopPet();
   if (!(window as unknown as { Live2DCubismCore?: unknown }).Live2DCubismCore) {
     throw new Error("Cubism Core 未加载。确认 public/Core/live2dcubismcore.js 存在。");
   }
@@ -32,6 +42,8 @@ export async function startPet(canvas: HTMLCanvasElement, modelUrl: string): Pro
   const viewH = wrap.clientHeight;
   if (viewW <= 1 || viewH <= 1) throw new Error(`画布尺寸无效 ${viewW}x${viewH}`);
 
+  const PIXI = await import('pixi.js');
+  (window as unknown as { PIXI: typeof PIXI }).PIXI = PIXI;
   live2d = await import("pixi-live2d-display/cubism4");
   live2d.Live2DModel.registerTicker(PIXI.Ticker);
   app = new PIXI.Application({
@@ -86,6 +98,7 @@ export function playMotion(group: string): Promise<void> {
 }
 
 async function runMotion(group: string): Promise<void> {
+  if (builtin) { builtin.play(group); lastMotion = group; return; }
   if (!model) {
     throw new Error("形象还没加载。恢复：确认 public/Core 和 public/skins/kaltsit 都在。");
   }
@@ -107,6 +120,7 @@ async function runMotion(group: string): Promise<void> {
 
 // 角色渲染包围盒（CSS 逻辑像素，窗口相对坐标），供 Rust 穿透判定。
 export function modelBounds(): { x: number; y: number; w: number; h: number } | null {
+  if (builtin) return builtin.bounds();
   if (!model) return null;
   const b = model.getBounds();
   return { x: b.x, y: b.y, w: b.width, h: b.height };

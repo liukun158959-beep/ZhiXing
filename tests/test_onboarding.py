@@ -33,7 +33,8 @@ class OnboardingTests(unittest.TestCase):
         self.assertTrue(result["configured"])
         self.assertNotIn("api_key", json.dumps(result))
         self.assertEqual(result["data_dir"], str(self.root))
-        self.assertFalse(result["checks"]["pet"])
+        self.assertTrue(result["checks"]["pet"])
+        self.assertFalse(result["checks"]["live2d"])
 
     def test_api_url_rejects_endpoint_and_secrets(self):
         for raw in ["api.example.com", "https://", "file:///a", "https://u:p@example.com/v1",

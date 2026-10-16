@@ -12,6 +12,14 @@ class Bridge:
         from .onboarding import status
         return status()
 
+    def load_pet_preferences(self) -> dict:
+        from .pet_preferences import load
+        return load()
+
+    def save_pet_preferences(self, skin: str) -> dict:
+        from .pet_preferences import save
+        return save(skin)
+
     def load_collaboration(self) -> dict:
         return self._host.collaboration.snapshot()
 

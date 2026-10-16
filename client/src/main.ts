@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-// 宠物窗：凯尔希 Live2D、拖动、头顶短台词、右键菜单。对话在主窗口。
+// 宠物窗：内置矢量小伴 / 可选 Live2D、拖动、任务气泡和右键菜单。
 // 穿透由 Rust 轮询命中区域。拖动期间锁住穿透，避免松手事件被吃掉。
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import {
@@ -16,21 +16,14 @@ import {
   pointerUp,
   tapBubble,
 } from "./pet-gesture";
-import { currentMotion, modelBounds, playMotion, startPet } from "./pet-render";
+import { currentMotion, modelBounds, playMotion, startPet, startBuiltinPet } from "./pet-render";
 import { backendInfo, rpc, type BackendInfo } from "./client/api";
 import type { SetupStatus } from "./client/onboarding";
 import { loadCubismCore, petErrorText } from "./pet-assets";
+import { isBuiltinSkin } from "./builtin-pet";
 import { installPetMenu, syncPetMenuRegion } from "./pet-menu";
 
 let petAvailable = false;
-const setupCard = document.createElement("button");
-setupCard.type = "button";
-setupCard.textContent = "tebb\n正在准备桌宠…";
-setupCard.setAttribute("aria-label", "打开 tebb 主窗口");
-Object.assign(setupCard.style, { position: "absolute", left: "20px", top: "130px", width: "220px", padding: "22px 16px", color: "#f4f1ea", background: "#101216", border: "1px solid #ffd429", borderRadius: "14px", whiteSpace: "pre-line", lineHeight: "1.7", cursor: "pointer" });
-document.body.appendChild(setupCard);
-setupCard.onclick = () => void rust("show_main");
-
 const bubbleEl = document.getElementById("bubble") as HTMLDivElement;
 const menuEl = document.getElementById("menu") as HTMLDivElement;
 
@@ -91,10 +84,6 @@ async function reportHitRegions(): Promise<void> {
   const rects: { x: number; y: number; w: number; h: number }[] = [];
   const bounds = modelBounds();
   if (bounds) rects.push(bounds);
-  if (!setupCard.hidden) {
-    const rect = setupCard.getBoundingClientRect();
-    rects.push({ x: rect.x, y: rect.y, w: rect.width, h: rect.height });
-  }
   for (const el of [bubbleEl, menuEl]) {
     if (el.classList.contains("hidden")) continue;
     const rect = el.getBoundingClientRect();
@@ -290,38 +279,52 @@ async function main(): Promise<void> {
   setInterval(() => void reportHitRegions(), 500);
 
   const canvas = document.getElementById("stage") as HTMLCanvasElement;
+  // Render immediately, including first run/offline installs without Live2D assets.
+  startBuiltinPet(canvas, 'paper'); petAvailable = true;
   let backend: BackendInfo | null = null;
-  try {
-    let base = "";
-    let corePath = "client/public/Core/live2dcubismcore.js";
-    if (isTauri()) {
-      const info = await backendInfo();
-      backend = info;
-      const setup = await rpc<SetupStatus>(info, "load_onboarding");
-      if (!setup.checks.pet) {
-        setupCard.textContent = "尚未添加桌宠形象\n点击打开主窗口\n在使用引导中查看素材位置";
+  let lastSkin = 'paper';
+  let changing = false;
+  let reported = false;
+  let renderedSkin = 'paper';
+  async function refreshSkin() {
+    if (!backend || changing) return;
+    changing = true;
+    try {
+      const preferences = await rpc<{ skin: string }>(backend, 'load_pet_preferences');
+      if (preferences.skin !== lastSkin) {
+        lastSkin = preferences.skin; reported = false;
+        bubble = dismissBubble(bubble); renderBubble(); renderMenu(false);
+        petAvailable = false;
+        try {
+          if (isBuiltinSkin(lastSkin)) { startBuiltinPet(canvas, lastSkin); renderedSkin = lastSkin; }
+          else {
+            const setup = await rpc<SetupStatus>(backend, 'load_onboarding');
+            const base = `http://127.0.0.1:${backend.port}/pet-assets/${backend.token}`;
+            if (!(window as Window & { Live2DCubismCore?: unknown }).Live2DCubismCore) await loadCubismCore(`${base}/Core/live2dcubismcore.js`, `${setup.assets_dir}/Core/live2dcubismcore.js`);
+            await startPet(canvas, `${base}/skins/kaltsit/kaltsit.model3.json`); renderedSkin = 'kaltsit';
+          }
+        } catch (err) {
+          startBuiltinPet(canvas, 'paper'); renderedSkin = 'paper';
+          showError(`已恢复内置小伴。${petErrorText(err)}`);
+        }
+        petAvailable = true;
         await reportHitRegions();
-        return;
       }
-      base = `http://127.0.0.1:${info.port}/pet-assets/${info.token}`;
-      corePath = `${setup.assets_dir}/Core/live2dcubismcore.js`;
-    }
-    await loadCubismCore(`${base}/Core/live2dcubismcore.js`, corePath);
-    await startPet(canvas, `${base}/skins/kaltsit/kaltsit.model3.json`);
-    petAvailable = true;
-    setupCard.hidden = true;
-    if (backend) void rpc(backend, "report_pet_status", { ready: true, message: "Cubism Core 和形象已加载，待机动作已启动。" }).catch(() => {});
-  } catch (err) {
-    setupCard.textContent = "桌宠尚未就绪\n点击打开主窗口查看使用引导";
-    showError(petErrorText(err));
-    if (backend) void rpc(backend, "report_pet_status", { ready: false, message: petErrorText(err).replaceAll(backend.token, "[本地凭证]") }).catch(() => {});
+      if (!reported) { await rpc(backend, 'report_pet_status', { ready: true, message: `桌宠形象已就绪：${renderedSkin}` }); reported = true; }
+    } catch { /* Keep the bundled companion while the backend reconnects. */ }
+    finally { changing = false; }
   }
+  try {
+    if (isTauri()) backend = await backendInfo();
+    await refreshSkin();
+  } catch { /* Built-in pet works independently of the backend. */ }
   await reportHitRegions();
   if (backend) {
     const info = backend;
     let last = "";
     let polling = false;
     setInterval(async () => {
+      void refreshSkin();
       if (polling) return;
       polling = true;
       try {

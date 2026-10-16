@@ -369,11 +369,17 @@ test('normal App starts in core chat and keeps its draft mounted across settings
   assert.equal(root().props['data-pane'], 'collaboration');
   await act(async () => button(view, '设置').props.onClick());
   assert.equal(root().props['data-pane'], 'settings');
+  const slot = view.root.findByProps({'data-content-slot': true});
+  const route = () => view.root.findByProps({className: 'tebb-route-page'});
+  assert.equal(route().props.hidden, false); assert.equal(route().findAllByType('section').length, 1);
+  assert.equal(route().findByType('section').props.initial, undefined);
   assert.equal(draft().props.value, '跨页保留的草稿'); assert.equal(unmounts, 0);
   const rail = view.root.findByProps({'aria-label':'工作区快捷栏'});
   await act(async () => rail.findAllByType('button').find(n => n.props['aria-label'] === '伙伴聊天').props.onClick());
   assert.equal(root().props['data-pane'], 'collaboration'); assert.equal(draft().props.value, '跨页保留的草稿');
   assert.equal(mounts, 1);
+  assert.equal(view.root.findByProps({'data-content-slot': true}), slot);
+  assert.equal(route().props.hidden, true); assert.equal(route().findAllByType('section').length, 0);
   await act(async () => view.unmount()); assert.equal(unmounts, 1);
 });
 

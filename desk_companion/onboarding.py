@@ -22,7 +22,8 @@ def status() -> dict:
             "github": shutil.which("gh") is not None,
             "feishu": shutil.which("lark-cli") is not None,
             "knowledge": importlib.util.find_spec("sentence_transformers") is not None,
-            "pet": (asset_root() / "Core/live2dcubismcore.js").is_file()
+            "pet": True,  # The vector pet is included with every client.
+            "live2d": (asset_root() / "Core/live2dcubismcore.js").is_file()
                 and (asset_root() / "skins/kaltsit/kaltsit.model3.json").is_file(),
         },
     }

@@ -1,7 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Fragment, lazy, Suspense, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { Button, Card, CardBody, GlitchText } from "reend-components";
 import { BoardPane, shouldReloadBoard, type BoardPayload } from "./board";
 import {
@@ -30,8 +29,8 @@ import { AgentMonitor } from "./agent-monitor";
 import { AgentDebugDialog } from "./agent-debug";
 import { WorkspaceRuns } from "./workspace-runs";
 import { WorkspaceRail } from "./workspace-shell";
+import { PetSettings } from "./pet-settings";
 import { RailButton, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
-import "./chat-prototype.css";
 import { TopToolbar } from "./top-toolbar";
 import { LocalSourcesDialog, type LocalSource } from "./local-sources";
 import { SideWorkspace, previewSource, openTerminal, openProject } from "./side-workspace";
@@ -2143,19 +2142,16 @@ export function App() {
           onDetach={id => setPickedAttachments(prev => prev.filter(s => s.id !== id))}
           onLink={url => { if (noteSessionId && pane === "chat" && chatFace === "thread") setDraft(text => `${text}${text ? "\n" : ""}${url}`); else { setComposeRequest({ id: Date.now(), text: url }); setPane("collaboration"); } }}
           onRequest={() => {}}>
+        <div className="tebb-content-slot" data-content-slot>
         <div className="tebb-core-chat" hidden={!coreChat} style={{ display: coreChat ? "flex" : "none", flex: 1, minHeight: 0, minWidth: 0 }}>
           {!debugKind && <Suspense fallback={<p className="p-6">正在连接伙伴…</p>}><LiveCollaboration attachments={pickedAttachments} onAttach={() => setLocalDialog("file")} onDetach={id => setPickedAttachments(old => old.filter(a => a.id!==id))} onProject={openProject} onFile={() => setLocalDialog("file")} onTerminal={openTerminal} composeRequest={composeRequest} info={info} developerMode={developerMode} onDeveloperMode={changeDeveloperMode} /></Suspense>}
         </div>
-        <AnimatePresence mode="wait">
+        <div className="tebb-route-page" hidden={coreChat} style={{ display: coreChat ? "none" : "flex" }}>
           {coreChat ? null : pane === "chat" && chatFace === "knowledge" ? (
-            <motion.section
+            <section
               key="knowledge"
               data-chat-face="knowledge"
               className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             >
               <KnowledgePane
                 data={knowledge}
@@ -2194,16 +2190,12 @@ export function App() {
                 }}
               />
               <WikiConnectionSettings info={info} debug={!!debugPane()} onSaved={() => void openKnowledge()} />
-            </motion.section>
+            </section>
           ) : pane === "chat" && chatFace === "memory" ? (
-            <motion.section
+            <section
               key="memory"
               data-chat-face="memory"
               className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             >
               <MemoryPane
                 data={memory}
@@ -2216,16 +2208,12 @@ export function App() {
                 onDrop={(role, text) => changeFact("delete_memory_turn", { role, text })}
                 onCompress={compressContext}
               />
-            </motion.section>
+            </section>
           ) : pane === "chat" && noteSessionId ? (
-            <motion.section
+            <section
               key={`note-${noteSessionId}`}
               data-chat-face="note"
               className="flex min-h-0 flex-1 flex-col"
-              initial={{ opacity: 0, x: 36 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -28 }}
-              transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
             >
               <NoteMode
                 sessionId={noteSessionId}
@@ -2279,16 +2267,12 @@ export function App() {
                 </form>
                 {composerNotice && <p className="composer-feedback" role="status">{composerNotice}</p>}
               </div>
-            </motion.section>
+            </section>
           ) : pane === "chat" ? (
-            <motion.section
+            <section
               key="chat"
               data-chat-face="thread"
               className="flex min-h-0 flex-1 flex-col"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             >
               <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto px-8 py-6">
                 {debugMode ? (
@@ -2455,17 +2439,14 @@ export function App() {
                 </form>
                 {composerNotice && <p className="composer-feedback" role="status">{composerNotice}</p>}
               </div>
-            </motion.section>
+            </section>
           ) : pane === "settings" ? (
-            <motion.section
+            <section
               key="settings"
               className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             >
               <ReleaseSettings info={info} onShowIntro={releaseIntro.show} />
+              <PetSettings info={info} debug={!!debugKind} />
               <SettingsPane
                 onOpenGuide={() => {
                   if (!info) return;
@@ -2495,15 +2476,11 @@ export function App() {
                 onDelete={(id) => void deleteModel(id)}
                 onSavePersona={(text) => void savePersona(text)}
               />
-            </motion.section>
+            </section>
           ) : pane === "feishu" ? (
-            <motion.section
+            <section
               key="feishu"
               className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             >
               <FeishuPane
                 snap={feishu}
@@ -2513,37 +2490,30 @@ export function App() {
                 onLogout={() => void logoutFeishu()}
               />
               <FeishuAgentPane info={info} debug={boardClock !== null} />
-            </motion.section>
+            </section>
           ) : pane === "automation" ? (
-            <motion.section key="automation" data-page="automation" className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <section key="automation" data-page="automation" className="flex-1 overflow-y-auto px-8 py-6">
               <h1 className="text-2xl font-semibold">定时任务</h1>
               <p className="mt-2 text-sm text-muted-foreground">管理每日资讯、运行计划和执行记录。</p>
               <AutomationPane info={info} debug={boardClock !== null} />
-            </motion.section>
+            </section>
           ) : pane === "video" ? (
-            <motion.section key="video" data-page="video" className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <section key="video" data-page="video" className="flex-1 overflow-y-auto px-8 py-6">
               <h1 className="text-2xl font-semibold">视频读取</h1>
               <p className="mt-2 text-sm text-muted-foreground">从实际视频资料中提炼要点，查看出处并整理笔记。</p>
               <VideoPane info={info} debug={boardClock !== null} />
-            </motion.section>
+            </section>
           ) : pane === "monitor" ? (
-            <motion.section key="monitor" data-page="monitor" className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+            <section key="monitor" data-page="monitor" className="flex-1 overflow-y-auto px-8 py-6">
               <h1 className="text-2xl font-semibold">执行任务</h1>
               <p className="mt-2 text-sm text-muted-foreground">查看桌面与飞书会话的执行过程，停止任务或继续聊天。</p>
               <WorkspaceRuns info={info} onOpen={conversation => { if (!info) return; void rpc(info, 'collaboration_action', { action: { type: 'select', id: conversation, conversation, request_id: crypto.randomUUID() } }).then(() => { setPane('collaboration'); window.dispatchEvent(new CustomEvent('tebb-show-tasks')); }).catch(e => setError(String(e))); }} />
               <details className="mt-6"><summary>其他渠道与旧任务记录</summary><AgentMonitor info={info} debug={boardClock !== null} /></details>
-            </motion.section>
+            </section>
           ) : (
-            <motion.section
+            <section
               key="board"
               className="flex-1 overflow-y-auto px-8 py-6"
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
             >
               <BoardPane
                 data={board}
@@ -2564,9 +2534,10 @@ export function App() {
                 createNonce={createNonce}
                 onCreateEvent={(summary, start, end) => void createEvent(summary, start, end)}
               />
-            </motion.section>
+            </section>
           )}
-        </AnimatePresence>
+        </div>
+        </div>
         </SideWorkspace>
         </div>
       </main>
