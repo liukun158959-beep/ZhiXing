@@ -106,6 +106,23 @@ def save_note(session_id: str, question: str, answer: str, cites: list) -> dict:
     return page
 
 
+def save_agent_artifact(conversation: str, run_id: str, title: str, question: str, answer: str, agent: str) -> dict:
+    """Save a real chat result with explicit AI provenance, never as verified research."""
+    session_id = uuid.uuid5(uuid.NAMESPACE_URL, 'tebb-notes:'+conversation).hex
+    note_id = uuid.uuid5(uuid.NAMESPACE_URL, 'tebb-artifact:'+run_id).hex
+    with _LOCK:
+        book = _read()
+        session = next((s for s in book['sessions'] if s['id'] == session_id), None)
+        if session is None:
+            session = dict(id=session_id, title='伙伴成果 · '+title[:40], updated=_now(), turns=[], notes=[])
+            book['sessions'].insert(0, session)
+        if not any(n['id'] == note_id for n in session['notes']):
+            citation = dict(n=1, doc='伙伴聊天 · '+agent, title='AI 生成内容，未经额外来源核验', text=answer[:2000], doc_id='tebb:conversation:'+conversation+':run:'+run_id)
+            session['notes'].insert(0, dict(id=note_id, question=question[:200], answer='> 由伙伴聊天收藏，AI 生成；未作额外来源核验。\n\n'+answer, cites=[citation], saved=_now(), files=[]))
+            session['updated'] = _now(); _write(book)
+    return dict(ok=True, session_id=session_id, note_id=note_id)
+
+
 def delete_note(session_id: str, note_id: str) -> dict:
     target = (note_id or "").strip()
     if not target:

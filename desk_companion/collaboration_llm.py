@@ -10,13 +10,15 @@ import httpx
 
 
 class CollaborationLLM:
-    def __init__(self, model, sampling, timeout, client=None):
+    def __init__(self, model, sampling, timeout, client=None, purpose='task'):
         self.model = model
-        self.sampling = sampling
+        self.sampling = {**sampling, **({'reasoning_effort': 'low'} if purpose == 'route' else {})}
+        self.preserve_reasoning = model['model'].lower().startswith(('glm-4.7', 'glm-5'))
         self.timeout = timeout
         self.client = client
         self.owned = client is None
         self.on_reasoning = None
+        self.on_progress = None
 
     def __enter__(self): return self
 
@@ -33,12 +35,15 @@ class CollaborationLLM:
                        thinking=dict(type='enabled'), reasoning_effort=self.sampling['reasoning_effort'])
         if tools:
             payload['tools'] = tools
+        if self.preserve_reasoning:
+            payload['thinking']['clear_thinking'] = False
+            payload['tool_stream'] = True
         started = time.monotonic()
         if self.client is None:
             from .model_network import http_client
             self.client = http_client(self.timeout)
         client = self.client
-        pieces, calls, usage = [], {}, None
+        pieces, reasoning_pieces, calls, usage = [], [], {}, None
         finished = False
         try:
             with client.stream('POST', self.model['base_url'].rstrip('/')+'/chat/completions',
@@ -59,6 +64,8 @@ class CollaborationLLM:
                             continue
                         delta = choice.get('delta') or {}
                         reasoning = delta.get('reasoning_content')
+                        if reasoning and self.preserve_reasoning:
+                            reasoning_pieces.append(reasoning)
                         if reasoning and self.on_reasoning:
                             self.on_reasoning(reasoning)
                         piece = delta.get('content')
@@ -67,6 +74,8 @@ class CollaborationLLM:
                             if on_delta:
                                 on_delta(piece)
                         for call in delta.get('tool_calls') or []:
+                            if self.on_progress:
+                                self.on_progress()
                             slot = calls.setdefault(call['index'], dict(id='', type='function', function=dict(name='', arguments='')))
                             if call.get('id'):
                                 slot['id'] = call['id']
@@ -82,6 +91,8 @@ class CollaborationLLM:
         message = dict(role='assistant', content=''.join(pieces) or None)
         if calls:
             message['tool_calls'] = [calls[i] for i in sorted(calls)]
+        if reasoning_pieces:
+            message['reasoning_content'] = ''.join(reasoning_pieces)
         return dict(message=message, usage=usage, duration_ms=int((time.monotonic()-started)*1000))
 
 

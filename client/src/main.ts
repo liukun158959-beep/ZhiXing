@@ -210,8 +210,6 @@ function runMenu(action: string): void {
       },
     },
     hide: { label: "隐藏桌宠", run: () => rust("set_pet_visible", { visible: false }) },
-    chat: { label: "打开对话框", run: () => rust("set_pet_chat_visible", { visible: true }) },
-    close_chat: { label: "关闭对话框", run: () => rust("set_pet_chat_visible", { visible: false }) },
     close_bubble: { label: "关闭提示", run: async () => { if(feedbackBubble)feedback.dismiss();feedbackBubble=false;bubble = dismissBubble(bubble); renderBubble(); } },
     main: { label: "打开主窗口", run: () => rust("show_main") },
     quit: { label: "退出", run: () => rust("quit_app") },

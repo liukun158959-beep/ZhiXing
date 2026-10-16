@@ -10,6 +10,23 @@ SAMPLING = dict(reasoning_effort='low', temperature=.5, top_p=1)
 
 
 class StreamingTests(unittest.TestCase):
+    def test_glm_tool_reasoning_is_returned_only_to_model_and_tool_stream_reports_progress(self):
+        seen=[]
+        chunks=[dict(choices=[dict(delta=dict(reasoning_content='opaque-model-reasoning'))]),
+                dict(choices=[dict(delta=dict(tool_calls=[dict(index=0,id='tool',function=dict(name='workspace_read',arguments='{"path":"a.py"}'))]),finish_reason='tool_calls')])]
+        def handle(request):
+            seen.append(json.loads(request.content))
+            return httpx.Response(200,text=''.join('data: '+json.dumps(c)+'\n\n' for c in chunks)+'data: [DONE]\n\n')
+        client=httpx.Client(transport=httpx.MockTransport(handle));self.addCleanup(client.close)
+        llm=CollaborationLLM({**MODEL,'model':'glm-5.3-flash'},{**SAMPLING,'reasoning_effort':'max'},20,client,purpose='route')
+        progress=[];visible=[];llm.on_progress=lambda:progress.append(True)
+        first=llm.chat([],tools=[dict(type='function')],on_delta=visible.append)
+        self.assertEqual(first['message']['reasoning_content'],'opaque-model-reasoning')
+        llm.chat([first['message']])
+        self.assertEqual(seen[1]['messages'][0]['reasoning_content'],'opaque-model-reasoning')
+        self.assertEqual(seen[0]['thinking'],dict(type='enabled',clear_thinking=False))
+        self.assertEqual(seen[0]['reasoning_effort'],'low');self.assertTrue(seen[0]['tool_stream'])
+        self.assertTrue(progress);self.assertEqual(visible,[])
     def test_owned_transport_is_reused_only_within_one_worker_and_closed(self):
         from unittest.mock import patch
         client=httpx.Client(transport=httpx.MockTransport(lambda r:httpx.Response(200,text='data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')))

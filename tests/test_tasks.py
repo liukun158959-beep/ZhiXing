@@ -37,6 +37,10 @@ elif r['text']=='archive_timeout':
 elif r['text']=='tool':
  emit('tool_start',dict(tool='create_calendar_event',step='s1'))
  emit('tool_end',dict(tool='create_calendar_event',step='s1',status='success'))
+elif r['text']=='command_wait':
+ emit('tool_start',dict(tool='workspace_run',phase_timeout=1))
+ time.sleep(.5)
+ emit('tool_end',dict(tool='workspace_run',status='success'))
 elif r['text']=='video_failure':
  emit('failure',dict(type='APIConnectionError',message='片段 3/8 连接中断，已完成2/8',phase='片段3',completed=2,total=8))
  sys.exit(0)
@@ -118,6 +122,15 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(task["state"], "timed_out")
         self.assertLess(time.monotonic() - started, 2)
         self.assertEqual(task["answer"], "保留片段")
+        self.assertIn('模型接口等待',task['error'])
+
+    def test_coding_command_wait_budget_does_not_use_short_model_idle_timeout(self):
+        self.manager.settings.update(call_timeout=.15,task_timeout=3)
+        task=self.manager.wait(self.manager.submit('command_wait','command'))
+        self.assertEqual(task['state'],'succeeded')
+        self.manager.settings['task_timeout']=.25
+        limited=self.manager.wait(self.manager.submit('command_wait','total-limit'))
+        self.assertEqual(limited['state'],'timed_out')
 
     def test_video_failure_preserves_phase_and_coverage_in_timeline(self):
         task = self.manager.wait(self.manager.submit("video_failure", "a"))

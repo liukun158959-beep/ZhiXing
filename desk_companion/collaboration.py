@@ -36,6 +36,20 @@ def parse_route(text):
     return decision
 
 
+def execution_limits(agent_id):
+    defaults = dict(call_timeout=90, task_timeout=600 if agent_id == 'coder' else 300)
+    path = data_root() / 'memory' / 'task_settings.json'
+    if not path.exists(): return defaults
+    try:
+        saved = json.loads(path.read_text('utf-8'))
+        call, total = saved['call_timeout'], saved['task_timeout']
+        if type(call) is not int or type(total) is not int or not 10 <= call <= 300 or not call <= total <= 1800:
+            return defaults
+        return dict(call_timeout=call, task_timeout=total)
+    except (ValueError, KeyError, TypeError):
+        return defaults
+
+
 def migrate_companions(state):
     if state.get("companion_version", 0) >= 1:
         return
@@ -458,7 +472,7 @@ class Collaboration:
                         search_budget=max(0, 2-run.get("search_calls",run.get("tool_calls",0))),fetch_budget=max(0,4-run.get("fetch_calls",0)),
                         source_evidence=run.get("source_evidence",[]),evidence=run.get("evidence",[]))
                     run["task"] = manager.submit(run["input"], "collab-"+run["id"], "collaboration", submission_key=f"collab:{run['id']}:{run['attempt']}",
-                        task_limits=dict(call_timeout=90, task_timeout=600 if run["agent"]=="coder" else 300), **({**request, **({"sampling":run["sampling"]} if run.get("sampling") else {})}))
+                        task_limits=execution_limits(run['agent']), **({**request, **({"sampling":run["sampling"]} if run.get("sampling") else {})}))
                     run["state"] = "queued"
                 task = manager.get(run["task"])
                 for event in task["events"]:

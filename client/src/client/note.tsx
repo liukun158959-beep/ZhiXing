@@ -82,6 +82,7 @@ export function NoteMode(props: {
   onRevealFile: (id: string, name: string) => void;
   onDeleteFile: (id: string, name: string) => void;
   onSummarize: (noteIds: string[]) => void;
+  onCollaborate?: (noteId: string) => void;
   saveStatus: string;
   saveBad: boolean;
   docUrl: string;
@@ -189,6 +190,7 @@ export function NoteMode(props: {
             <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="text-xs text-muted-foreground" title={reader.saved}>已存笔记 · {savedTime(reader.saved)}</p><h1 className="mt-2 text-xl">{reader.question}</h1></div>
               <details className="note-more"><summary>更多 ⌄</summary><div><button className="desk-menu-item" disabled={props.busy} onClick={() => props.onMarkdown(reader.id)}>导出 Markdown</button><button className="desk-menu-item" disabled={props.busy} onClick={() => props.onFeishu(reader.id)}>保存到飞书文档</button><button className="desk-menu-item text-destructive" disabled={props.busy} onClick={() => setConfirmDelete(reader.id)}>删除笔记</button></div></details></div>
             <button className="desk-menu-item my-3" onClick={() => setReaderId(null)}>← 返回对话</button>
+            {props.onCollaborate && <button className="desk-menu-item" disabled={props.busy} onClick={() => props.onCollaborate?.(reader.id)}>作为资料交给伙伴</button>}
             {props.saveStatus && <p className={`mb-3 text-xs ${props.saveBad ? "text-destructive" : "text-muted-foreground"}`} role="status"><LoadingText text={props.saveStatus} active={props.busy} /></p>}
             {confirmDelete === reader.id && <div className="note-delete-confirm" role="alert"><p>删除这条笔记？原始来源不会删除。</p><button className="desk-menu-item text-destructive" disabled={props.busy} onClick={() => { props.onDelete(reader.id); setConfirmDelete(null); }}>删除</button><button className="desk-menu-item" onClick={() => setConfirmDelete(null)}>取消</button></div>}
             <CitedText text={reader.answer} cites={reader.cites} />

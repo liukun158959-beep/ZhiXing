@@ -154,29 +154,70 @@ class CollaborationTests(unittest.TestCase):
         self.assertEqual(child['kind'],'plan');self.assertEqual(child['parent'],root['id'])
         self.assertIn('研究并写成报告',child['input'] if 'input' in child else child['title'])
 
-    def test_route_repairs_plain_code_once_without_executing_tools(self):
+    def test_route_accepts_plain_code_in_one_call_without_executing_tools(self):
         request=self.request();request['kind']='route'
         code='```python\ndef bubble_sort(a):\n    pass\n```';calls=[];events=[]
         class LLM:
             def chat(_,messages,tools,on_delta):
-                calls.append(copy.deepcopy(messages)); self.assertEqual(tools,[])
+                calls.append(copy.deepcopy(messages)); self.assertEqual([t['function']['name'] for t in tools],['start_background_task'])
                 return dict(message=dict(content=code if len(calls)==1 else json.dumps(dict(mode='answer',text=code))),usage={})
         execute(request,lambda k,d:events.append((k,d)),llm=LLM())
-        self.assertEqual(len(calls),2)
+        self.assertEqual(len(calls),1)
         self.assertEqual(json.loads(events[-1][1])['text'],code)
         self.assertFalse(any(k=='tool_start' for k,d in events))
-        self.assertTrue(any(k=='status' and '纠正' in d for k,d in events))
+        self.assertFalse(any(k=='status' and '纠正' in d for k,d in events))
 
     def test_invalid_route_repair_is_bounded_and_cannot_dispatch(self):
         from desk_companion.collaboration_worker import PublicFailure
         request=self.request();request['kind']='route';calls=[];events=[]
         class LLM:
             def chat(_,messages,tools,on_delta):
-                calls.append(1);return dict(message=dict(content='已帮你保存好了'),usage={})
+                calls.append(1);return dict(message=dict(content='{"mode":"wrong"}'),usage={})
         with self.assertRaisesRegex(PublicFailure,'未执行工具'):
             execute(request,lambda k,d:events.append((k,d)),llm=LLM())
         self.assertEqual(len(calls),2)
         self.assertFalse(any(k in {'tool_start','result'} for k,d in events))
+
+    def test_shared_task_limits_apply_to_collaboration_without_rewriting_existing_jobs(self):
+        from desk_companion.collaboration import execution_limits
+        folder=Path(self.temp.name)/'memory';folder.mkdir(exist_ok=True)
+        path=folder/'task_settings.json';path.write_text(json.dumps(dict(call_timeout=150,task_timeout=900)))
+        self.assertEqual(execution_limits('coder'),dict(call_timeout=150,task_timeout=900))
+        self.action(type='send',text='写代码',mode='task',target='research');self.service.tick()
+        saved=next(iter(self.work.requests.values()))['task_limits']
+        self.assertEqual(saved,dict(call_timeout=150,task_timeout=900))
+        path.write_text(json.dumps(dict(call_timeout=20,task_timeout=40)))
+        self.assertEqual(saved,dict(call_timeout=150,task_timeout=900))
+        self.assertEqual(execution_limits('research'),dict(call_timeout=20,task_timeout=40))
+
+    def test_route_function_requests_one_background_task_without_running_it(self):
+        request=self.request();request['kind']='route';events=[]
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                return dict(message=dict(tool_calls=[dict(function=dict(name='start_background_task',arguments=json.dumps(dict(instructions='读取app.py并运行测试'))))]),usage={})
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(json.loads(events[-1][1]),dict(mode='task',instructions='读取app.py并运行测试'))
+        self.assertFalse(any(k=='tool_start' for k,d in events))
+
+    def test_chat_artifact_can_be_saved_once_as_note_and_read_as_full_attachment(self):
+        from desk_companion.bridge import Bridge
+        from desk_companion import notebook, local_sources
+        from types import SimpleNamespace
+        bridge=Bridge(SimpleNamespace(collaboration=self.service))
+        self.action(type='send',text='生成一份说明',mode='message',target='research');self.service.tick()
+        run=self.state()['runs'][-1]
+        with self.assertRaisesRegex(ValueError,'成功完成'):bridge.save_collaboration_note(run['id'])
+        body='成果正文。'*2000
+        self.chat.complete('collab:'+run['id']+':0',body);self.service.tick()
+        with patch('desk_companion.knowledge.public_view',return_value=dict(docs=[])):
+            first=bridge.save_collaboration_note(run['id']);second=bridge.save_collaboration_note(run['id'])
+            self.assertEqual(first,second)
+            book=notebook.load_notebook();self.assertEqual(len(book['sessions'][0]['notes']),1)
+            self.assertIn('AI 生成',book['sessions'][0]['notes'][0]['answer'])
+            staged=bridge.prepare_notebook_source(first['session_id'],first['note_id'])
+        self.assertEqual(len(staged['sources']),1)
+        snapshot=local_sources.get(staged['sources'][0]['id'])
+        self.assertIn(body,snapshot['text']);self.assertIn('未经额外来源核验',snapshot['text'])
 
     def test_multiple_mentions_limit_delegation_and_literal_code_is_not_a_mention(self):
         self.action(type='send',text='@阿探 @墨墨 一起研究',mode='auto',target='')

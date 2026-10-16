@@ -318,7 +318,7 @@ export function KnowledgePane(props: {
     <div data-knowledge="" data-knowledge-ok={data ? (failed ? "0" : "1") : ""}>
       <h1 className="text-xl font-semibold">知识库</h1>
       <p className="mt-1 text-sm text-muted-foreground">
-        按飞书知识库和本地资料管理文档。打开对话底栏的知识库后，从已入库的内容中检索，先走{data?.subagent || "知识库检索"}。
+        管理飞书与本地资料，在笔记中基于来源检索；笔记可以作为资料带回伙伴聊天，伙伴回答也能收藏为笔记。
       </p>
       {data?.error ? <p data-knowledge-error="" className="mt-3 text-sm text-destructive">{data.error}</p> : null}
       {data && data.ok !== false ? (

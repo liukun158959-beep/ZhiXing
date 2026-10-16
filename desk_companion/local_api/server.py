@@ -23,7 +23,7 @@ from .host import HeadlessApp
 # 白名单：bridge 上可无头调用的数据方法。窗口/UI 类（close_bubble/fit_card/
 # open_url/ask_today/ask_logs/close_board/send_chat）与流式（send_board_chat）不在此。
 RPC_METHODS = frozenset({
-    "load_collaboration", "collaboration_action", "project_workspace",
+    "load_collaboration", "collaboration_action", "project_workspace", "save_collaboration_note", "prepare_notebook_source",
     "terminal_status", "terminal_start", "terminal_list", "terminal_read", "terminal_input", "terminal_cancel",
     "terminal_files", "terminal_import_files", "terminal_preview_file",
     "load_video_login", "save_video_login", "clear_video_login",

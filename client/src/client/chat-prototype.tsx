@@ -2,7 +2,7 @@ import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { DEMO_STORAGE, RUN_LABELS, STEP_LABELS, demoReducer, initialDemo, restoreDemo, runActive,
   type DemoAgent, type DemoConversation, type DemoAction, type DemoRun, type DemoState } from "./chat-prototype-state";
 import { WorkspaceRail } from "./workspace-shell";
-import { type BackendInfo } from "./api";
+import { rpc, type BackendInfo } from "./api";
 import type { LocalSource } from "./local-sources";
 import { startupReady } from "./startup";
 import "./chat-prototype.css";
@@ -80,6 +80,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   const sendAction = async (action: DemoAction) => { if (live) return live.act(action); demoDispatch(action); return true; };
   const dispatch = (action: DemoAction) => { void sendAction(action); };
   const [storageError, setStorageError] = useState("");
+  const [listView, setListView] = useState<"history" | "companions">("history");
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<"auto">("auto");
   const [selectedSkills, setSelectedSkills] = useState<Record<string, string[]>>({});
@@ -263,21 +264,20 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
       {standalone && <button onClick={() => { const next = !dark; setDark(next); document.documentElement.classList.toggle("dark", next); document.documentElement.classList.toggle("light", !next); }} aria-label="切换原型主题">{dark ? "浅色" : "深色"}</button>}
       <a href="/client.html?preview=chat&live=1">连接真实伙伴 ↗</a><button onClick={() => setResetOpen(true)}>重置演示</button></span></div>}
     {standalone && <header className="tebb-standalone-toolbar"><span>伙伴聊天 · {real ? '本地连接' : '交互演示'}</span><div><button onClick={() => dispatch({ type: 'new_chat' })}>新对话</button><button onClick={() => { const next = !dark; setDark(next); document.documentElement.classList.toggle('dark', next); document.documentElement.classList.toggle('light', !next); }}>切换主题</button></div></header>}
-    <div className="cp-layout">
+    <div className={`cp-layout ${inspector ? "has-inspector" : ""}`}>
       {standalone && <WorkspaceRail developer={developer} onToggle={toggleDeveloper}><RailButton icon="chat" label="伙伴聊天" active onClick={() => {}} /></WorkspaceRail>}
       <aside className={`cp-conversations ${mobileList ? "cp-list-open" : ""}`} aria-label="会话列表">
         <div className="cp-sidebar-title"><strong>伙伴聊天</strong><button className="cp-icon-button" aria-label="新对话" onClick={() => dispatch({ type: "new_chat" })}>＋</button></div>
-        <div className="cp-list-heading"><span>协作空间</span><button className="cp-icon-button" aria-label="新建协作群" onClick={() => { setEditingGroup(null); setGroupOpen(true); }}>＋</button></div>
-        {state.conversations.filter(c => c.kind === "group").map(item => <button key={item.id} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onContextMenu={event => openMenu(item.id, event)} onKeyDown={event => menuKeys(item.id, event)} onClick={() => select(item.id)}>
-          <Avatar group /><span><strong>{item.title}</strong><small>你 ＋ {item.members.length} 位 Agent</small></span>{state.runs.some(run => run.conversation === item.id && runActive(run)) && <i className="cp-live-dot" />}</button>)}
-        <div className="cp-list-heading cp-list-gap"><span>聊天伙伴</span><button className="cp-icon-button" aria-label="创建 Agent" onClick={addAgent}>＋</button></div>
-        {state.agents.map(agent => { const item = state.conversations.find(c => c.kind === "dm" && c.coordinator === agent.id); return <button key={agent.id} data-companion={agent.id} className={`cp-conversation ${item?.id === state.selected ? "is-selected" : ""}`} aria-pressed={item?.id === state.selected}
-          onContextMenu={item ? event => openMenu(item.id, event) : undefined} onKeyDown={item ? event => menuKeys(item.id, event) : undefined}
-          onClick={() => { if (item) select(item.id); else { dispatch({ type: "open_dm", agent_id: agent.id }); setTarget(""); setUpdateRun(""); } }}>
-          <Avatar agent={agent} /><span><strong>{agent.name}</strong><small>{agent.personality || agent.role}</small></span>{item && state.runs.some(run => run.conversation === item.id && runActive(run)) && <i className="cp-live-dot" />}</button>; })}
-        <div className="cp-list-heading cp-list-gap"><span>对话记录</span></div>
-        {state.conversations.filter(c => c.kind === 'dm').map(item => <button key={item.id} className={`cp-history-row ${state.selected === item.id ? 'is-selected' : ''}`} onClick={() => select(item.id)} onContextMenu={event => openMenu(item.id,event)} onKeyDown={event => menuKeys(item.id,event)}><span>{item.title}</span>{item.legacy && <small>历史</small>}</button>)}
-        {!state.agents.some(a => a.id === 'coder') && <button className="cp-button cp-add-coder" onClick={() => dispatch({ type: 'add_coder' })}>＋ 添加编码伙伴</button>}
+        <div className="cp-list-switch" role="tablist" aria-label="聊天导航"><button role="tab" aria-selected={listView==='history'} onClick={()=>setListView('history')}>对话</button><button role="tab" aria-selected={listView==='companions'} onClick={()=>setListView('companions')}>伙伴</button></div>
+        {listView === 'history' ? <div role="tabpanel" aria-label="对话记录">
+          <div className="cp-list-heading"><span>对话记录</span><button className="cp-icon-button" aria-label="新建协作群" onClick={() => { setEditingGroup(null); setGroupOpen(true); }}>＋</button></div>
+          {[...state.conversations].reverse().map(item => <button key={item.id} data-conversation={item.id} data-chat-partner={item.kind==='dm' ? item.coordinator : undefined} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onContextMenu={event => openMenu(item.id,event)} onKeyDown={event => menuKeys(item.id,event)} onClick={() => select(item.id)}>
+            <Avatar group={item.kind==='group'} agent={member(item.coordinator)} /><span><strong>{item.title}</strong><small>{item.kind==='group' ? `协作群 · ${item.members.length} 位伙伴` : member(item.coordinator)?.name}{item.legacy ? ' · 历史' : ''}</small></span>{state.runs.some(run => run.conversation===item.id && runActive(run)) && <i className="cp-live-dot" />}</button>)}
+        </div> : <div role="tabpanel" aria-label="伙伴目录">
+          <div className="cp-list-heading"><span>伙伴目录</span><button className="cp-icon-button" aria-label="创建 Agent" onClick={addAgent}>＋</button></div>
+          {state.agents.map(agent => <div className="cp-companion-card" key={agent.id}><button data-companion={agent.id} className="cp-conversation" onClick={()=>setEditingAgent(agent)}><Avatar agent={agent}/><span><strong>{agent.name}</strong><small>{agent.personality || agent.role}</small></span></button><button className="cp-text-button" onClick={()=>{dispatch({type:'new_chat',agent_id:agent.id});setListView('history');setTarget('');setUpdateRun('');}}>新对话</button></div>)}
+          {!state.agents.some(a=>a.id==='coder') && <button className="cp-button cp-add-coder" onClick={()=>{dispatch({type:'add_coder'});setListView('history');}}>＋ 添加编码伙伴</button>}
+        </div>}
         <div className="cp-list-bottom"><button className="cp-inbox-link" onClick={() => { setInspector(true); setTab("inbox"); setMobileList(false); }}><span>◇ 待你处理</span><b>{pending.length}</b></button>
           <div className="cp-profile"><span className="cp-user-avatar">你</span><span><strong>我的工作空间</strong><small>{real ? "本地执行 · 真实用量" : "本地预览 · 未消耗模型额度"}</small></span></div></div>
       </aside>
@@ -295,6 +295,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
             <div className="cp-message-content"><div className="cp-message-author"><strong>{item.sender === "user" ? "你" : member(item.sender)?.name}</strong><span>{item.sender === "user" ? "" : "AGENT"}</span>{item.kind === "result" && <span className="cp-result-tag">成果</span>}</div>
               <div className="cp-markdown"><StreamText text={item.text || (real ? "正在等待模型响应…" : "")} active={!!item.run && runs.some(r=>r.id===item.run && runActive(r))} externalLinks={standalone} /></div>{item.run && (developer || !["chat","route","compress"].includes(runs.find(run => run.id===item.run)?.kind || "")) && <button className="cp-message-reference" onClick={() => { setFocusedRun(item.run!); setInspector(true); setTab("tasks"); }}>↗ 关联任务</button>}
               {real && item.sender!=="user" && item.run && <small className="cp-message-usage">{runs.find(r => r.id===item.run)?.model} · 输入 {runs.find(r => r.id===item.run)?.input_tokens || 0} / 输出 {runs.find(r => r.id===item.run)?.output_tokens || 0}</small>}
+              {real && backend && backend.scope!=='collaboration' && item.sender!=='user' && item.run && runs.some(r=>r.id===item.run && r.state==='succeeded' && ['task','chat','route'].includes(r.kind || '') && !runs.some(child=>child.parent===r.id)) && <button className="cp-message-reference" onClick={async()=>{try { const result=await rpc<{ok:boolean;error?:string}>(backend,'save_collaboration_note',{run_id:item.run}); if(!result.ok) throw new Error(result.error || '收藏失败'); setStorageError('已收藏到知识库的「伙伴成果」笔记，可继续作为资料使用。'); window.dispatchEvent(new Event('tebb-notebooks-changed')); } catch(error){setStorageError(String(error));} }}>收藏到笔记</button>}
               {item.kind === "result" && runs.find(run => run.id === item.run)?.artifact && <button className="cp-artifact-link" onClick={() => setArtifactId(item.run!)}><span>▤</span><span><strong>{real ? "成果文档" : "成果文档 · 演示"}</strong><small>{real ? "打开阅读实际成果" : "打开阅读，查看交付确认"}</small></span><span>↗</span></button>}
             </div></article>)}
           <div ref={end} />

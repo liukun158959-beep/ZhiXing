@@ -249,7 +249,12 @@ class TaskManager:
                             self.event(task_id, kind, data)
                         else:
                             if kind in ("llm_start", "tool_start"):
-                                phase["deadline"] = time.monotonic() + request["limits"]["call_timeout"]
+                                wait = request['limits']['call_timeout']
+                                if kind == 'tool_start' and isinstance(data,dict) and data.get('tool') == 'workspace_run':
+                                    command_wait = data.get('phase_timeout')
+                                    if type(command_wait) in (int,float) and 1 <= command_wait <= 140:
+                                        wait = max(wait,command_wait)
+                                phase["deadline"] = time.monotonic() + wait
                                 phase["kind"] = kind
                                 phase["hard_deadline"] = time.monotonic() + max(300, request["limits"]["call_timeout"]) if kind == "llm_start" else None
                                 phase["waiting_note"] = time.monotonic() + 30
@@ -287,7 +292,16 @@ class TaskManager:
                 control["cancel"].set()
                 tree.close()
                 reader.join(2)
-                message = "任务已停止。" if reason == "cancelled" else "调用达到时限，已停止等待。"
+                if reason == 'cancelled':
+                    message = '任务已停止。'
+                elif time.monotonic() >= deadline:
+                    message = '任务总时限已到，已停止等待。'
+                elif phase['kind'] == 'llm_start':
+                    message = '模型接口等待达到时限，已停止等待。可在调用调试中查看连接与响应耗时。'
+                elif phase['kind'] == 'tool_start':
+                    message = '工具执行等待达到时限，已停止等待。请查看工具回执。'
+                else:
+                    message = '调用达到时限，已停止等待。'
                 if reason == "timed_out" and "answer" in outcome:
                     self.finish(task_id, "succeeded", "笔记已完成；自动归档达到时限，请核实飞书保存回执。", answer=outcome["answer"])
                 else:

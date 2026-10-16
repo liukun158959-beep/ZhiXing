@@ -76,7 +76,7 @@ export function AgentMonitor({ info, debug = false }: { info: BackendInfo | null
         <label><input type="checkbox" checked={settings.pet_progress} onChange={e => { setDirty(true); setSettings({ ...settings, pet_progress: e.target.checked }); }} /> 凯尔希播报真实进度</label>
         <button className="rounded bg-white/10 px-3 py-2" disabled={busy || !dirty || debug} onClick={() => void run("save_agent_task_settings", settings)}>保存执行设置</button>
       </div>
-      <p className="mt-2 text-xs text-white/40">新设置应用于之后的任务。模型持续输出时继续等待，单次最多 5 分钟；工具执行受调用时限约束。视频笔记总时限至少 15 分钟，可随时停止。共享写入工具会排队，查询可并行。</p>
+      <p className="mt-2 text-xs text-white/40">时限设置也用于之后提交的伙伴聊天任务，已有任务保持原时限。模型持续输出时继续等待，单次最多 5 分钟；编码命令按自身时限执行并预留20秒收尾，总任务时限始终有效。伙伴聊天固定2项长任务与1条聊天并行。视频笔记总时限至少15分钟，可随时停止。</p>
     </details>
     <label className="mt-4 block text-sm">查看范围 <select className="ml-2 rounded bg-[#202329] p-2" value={channel}
       onChange={e => { setChannel(e.target.value); select(""); setDetail(null); }}><option value="feishu">飞书聊天</option><option value="">全部任务</option><option value="desktop">桌面对话</option><option value="video">视频读取</option></select></label>

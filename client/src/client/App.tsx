@@ -726,6 +726,26 @@ export function App() {
     }
   }
 
+  useEffect(() => {
+    if (!info) return;
+    const refresh = () => { void loadNotebooks(info); };
+    window.addEventListener('tebb-notebooks-changed', refresh);
+    return () => window.removeEventListener('tebb-notebooks-changed', refresh);
+  }, [info]);
+
+  async function shareNoteWithCompanions(id: string) {
+    if (!info || noteBusy || !noteSessionId) return;
+    setNoteBusy(true); setNoteSaveBad(false);
+    try {
+      const result = await rpc<{ok:boolean; sources:LocalSource[]; errors?:unknown[]}>(info, 'prepare_notebook_source', {session_id:noteSessionId, note_id:id});
+      if (!result.ok || !result.sources?.length || result.errors?.length) throw new Error('笔记资料准备失败，请重试。');
+      setPickedAttachments(old => [...new Map([...old,...result.sources].map(source => [source.id,source])).values()]);
+      setNoteSessionId(null); setPane('collaboration');
+      setComposeRequest({id:Date.now(),text:'请根据所附笔记继续处理：'});
+    } catch (error) { setNoteSaveBad(true); setNoteSave(String(error)); }
+    finally { setNoteBusy(false); }
+  }
+
   function openNoteSession(id: string) {
     setChatFace("thread");
     setPane("chat");
@@ -741,7 +761,7 @@ export function App() {
 
   async function newNotebook() {
     if (busy || noteBusy) {
-      setNoteListError("凯尔希正在说话，等这句说完再开新笔记。");
+      setNoteListError("当前内容正在处理，完成后再新建笔记。");
       return;
     }
     if (debugPane()) {
@@ -2136,8 +2156,8 @@ export function App() {
           onAttach={sources => { setPickedAttachments(sources); setLocalDialog(null); setPane("collaboration"); setNoteSessionId(null); }}
           onIndex={source => knowledgeCall("add_knowledge", { doc_id: `local:${source.id}`, label: source.name })} />}
         <div className="tebb-page-body">
-        {!coreChat && <aside className="tebb-section-nav" aria-label="页面导航"><strong>{pane === 'settings' ? '偏好与连接' : pane === 'chat' && chatFace === 'knowledge' ? '知识库' : pane === 'feishu' ? '飞书空间' : pane === 'video' ? '视频资料' : '任务与工作'}</strong>
-          {(pane === 'settings') ? <><button onClick={() => setShowGuide(true)}>初始化引导</button><button onClick={releaseIntro.show}>版本介绍</button><button onClick={openProject}>工作目录与权限</button>{developerMode && <button onClick={() => setAgentDebugOpen(true)}>调用调试</button>}</> : pane === 'chat' && chatFace === 'knowledge' ? <><button onClick={() => void openKnowledge()}>刷新知识库</button><button onClick={() => setLocalDialog('file')}>添加本地资料</button><button onClick={openProject}>项目文件</button>{noteSessions.map(note => <button key={note.id} onClick={() => openNoteSession(note.id)}>{note.title || '笔记'}</button>)}</> : <><button onClick={() => void openBoard()}>今日看板</button><button onClick={() => setPane('monitor')}>执行任务</button><button onClick={() => setPane('automation')}>定时任务</button><button onClick={() => setPane('video')}>视频读取</button><button onClick={openProject}>项目文件</button></>}
+        {!coreChat && <aside className="tebb-section-nav" aria-label="页面导航"><strong>{pane === 'settings' ? '偏好与连接' : pane === 'chat' && noteSessionId ? '笔记与成果' : pane === 'chat' && chatFace === 'knowledge' ? '知识库' : pane === 'feishu' ? '飞书空间' : pane === 'video' ? '视频资料' : '任务与工作'}</strong>
+          {(pane === 'settings') ? <><button onClick={() => setShowGuide(true)}>初始化引导</button><button onClick={releaseIntro.show}>版本介绍</button><button onClick={openProject}>工作目录与权限</button>{developerMode && <button onClick={() => setAgentDebugOpen(true)}>调用调试</button>}</> : pane === 'chat' && (chatFace === 'knowledge' || !!noteSessionId) ? <><button onClick={() => {setPane('collaboration');setNoteSessionId(null);}}>返回伙伴聊天</button><button onClick={() => void newNotebook()}>新建笔记</button><button onClick={() => void openKnowledge()}>刷新知识库</button><button onClick={() => setLocalDialog('file')}>添加本地资料</button><button onClick={openProject}>项目文件</button>{noteSessions.map(note => <button key={note.id} onClick={() => openNoteSession(note.id)}>{note.title || '笔记'}</button>)}</> : <><button onClick={() => void openBoard()}>今日看板</button><button onClick={() => setPane('monitor')}>执行任务</button><button onClick={() => setPane('automation')}>定时任务</button><button onClick={() => setPane('video')}>视频读取</button><button onClick={openProject}>项目文件</button></>}
           <p>文件、引用与任务可以返回伙伴聊天继续处理。</p></aside>}
         <SideWorkspace onVisibilityChange={setSidebarState} info={info} session={noteSessionId || thread?.sessionId || ""} onTerminalDraft={text => { if (noteSessionId && pane === "chat" && chatFace === "thread") { setDraft(previous => `${previous}${previous ? "\n\n" : ""}${text}`); setComposerNotice("内容已加入笔记提问草稿，尚未发送。"); } else { setComposeRequest({ id: Date.now(), text }); setPane("collaboration"); } }} enabled={true} debug={!!debugKind}
           suspended={agentDebugOpen || showGuide || !!cropSrc || releaseIntro.open || (!!localDialog && !localDialogMinimized)}
@@ -2243,6 +2263,7 @@ export function App() {
                 onRevealFile={(id, name) => void manageNoteFile("reveal", id, name)}
                 onDeleteFile={(id, name) => void manageNoteFile("delete", id, name)}
                 onSummarize={(picks) => void summarizeNotes(picks)}
+                onCollaborate={id => void shareNoteWithCompanions(id)}
                 saveStatus={noteSave}
                 saveBad={noteSaveBad}
                 docUrl={noteDocUrl}

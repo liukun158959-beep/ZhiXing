@@ -26,6 +26,32 @@ class Bridge:
     def collaboration_action(self, action: dict) -> dict:
         return self._host.collaboration.action(action)
 
+    def save_collaboration_note(self, run_id: str) -> dict:
+        from .collaboration import transaction
+        from .notebook import save_agent_artifact
+        collab = self._host.collaboration
+        with collab.lock, transaction(collab.path) as (state, _):
+            run = next((r for r in state['runs'] if r['id'] == run_id), None)
+            if not run or run['state'] != 'succeeded' or not run.get('answer') or run['kind'] not in {'task','chat','route'}:
+                raise ValueError('只能收藏已成功完成的回答')
+            if run['kind']=='route' and any(r.get('parent')==run_id for r in state['runs']):
+                raise ValueError('这是任务登记消息，请收藏实际成果')
+            conversation = next(c for c in state['conversations'] if c['id']==run['conversation'])
+            agent = next(a for a in state['agents'] if a['id']==run['agent'])
+            payload = (conversation['id'],run_id,conversation['title'],run['input'],run['answer'],agent['name'])
+        return save_agent_artifact(*payload)
+
+    def prepare_notebook_source(self, session_id: str, note_id: str) -> dict:
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+        from .notebook import note_document
+        from .local_sources import stage
+        document = note_document(session_id, note_id)
+        with TemporaryDirectory(prefix='tebb-note-') as folder:
+            path = Path(folder) / '笔记资料.md'
+            path.write_text(document['markdown'], encoding='utf-8')
+            return stage([str(path)], 'file')
+
     def project_workspace(self, operation="load", **args):
         from . import project_workspace as project
         if operation == "pick":

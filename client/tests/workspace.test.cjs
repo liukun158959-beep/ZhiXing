@@ -141,13 +141,14 @@ test('notebook titles are reading links, citations use complete stored Markdown,
   const motion = new Proxy({}, { get: (_, tag) => React.forwardRef(({ children, initial, animate, transition, ...props }, ref) => React.createElement(tag, { ...props, ref }, children)) });
   const { NoteMode } = load('note', { 'framer-motion': { motion }, './side-workspace': { previewQuote: c => quoted = c },
     './Markdown': { Markdown: ({ text, onCite }) => React.createElement('article', {}, text, React.createElement('button', { onClick: () => onCite?.(1) }, '引用1')) } });
-  let view; await act(async () => { view = create(React.createElement(NoteMode, { sessionId: 'session', book: { docs: [], turns: [], notes: [note] },
+  let shared='';let view; await act(async () => { view = create(React.createElement(NoteMode, { sessionId: 'session', onCollaborate:id=>shared=id, book: { docs: [], turns: [], notes: [note] },
     checked: [], error: '', status: '', busy: false, saveStatus: '', saveBad: false, docUrl: '', onCheck() {}, onSave() {}, onDelete() {},
     onMarkdown() {}, onFeishu() {}, onOpenFile() {}, onRevealFile() {}, onDeleteFile: (...args) => deleted.push(args), onSummarize: ids => merged = ids })); });
   const title = view.root.findByProps({ 'data-note-answer-toggle': 'n1' }); assert.equal(title.type, 'a');
   assert.equal(view.root.findAllByProps({ 'data-note-summarize': '' }).length, 0);
   await act(async () => title.props.onClick({ preventDefault() {} }));
   assert.equal(view.root.findByProps({ 'data-note-reader': 'n1' }).type, 'article');
+  await act(async()=>button(view,'作为资料交给伙伴').props.onClick());assert.equal(shared,'n1');
   await act(async () => button(view, '引用1').props.onClick()); assert.deepEqual(quoted, cite);
   await act(async () => button(view, '删除文件').props.onClick()); assert.equal(deleted.length, 0);
   await act(async () => button(view, '确认删除文件').props.onClick()); assert.deepEqual(deleted, [['n1', '资料.md']]);
