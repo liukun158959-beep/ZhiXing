@@ -21,7 +21,9 @@ class UpdateTests(unittest.TestCase):
         return result
 
     def test_stable_release_comparison_and_untrusted_links(self):
-        base = {"draft": False, "prerelease": False, "tag_name": "v0.3.0", "html_url": info.RELEASES_URL+"/tag/v0.3.0", "body": "更新说明<!-- hidden receipt -->"}
+        current = info.load_manifest()["version"].split(".")
+        newer = "v" + ".".join([*current[:-1], str(int(current[-1]) + 1)])
+        base = {"draft": False, "prerelease": False, "tag_name": newer, "html_url": info.RELEASES_URL+"/tag/"+newer, "body": "更新说明<!-- hidden receipt -->"}
         with patch.object(info.urllib.request, "urlopen", return_value=self.response(base)):
             result = info.check_updates()
         self.assertTrue(result["ok"])
@@ -153,7 +155,9 @@ class NotificationTests(unittest.TestCase):
 
     def test_card_has_image_five_updates_one_focal_title_and_download_links(self):
         card=notices.release_card(self.manifest,"image",self.release["html_url"])
-        self.assertIn("ZhiXing", card["header"]["title"]["content"])
+        self.assertEqual(card["header"]["title"]["content"], self.manifest.get("product_name", "知行 · ZhiXing") + " " + self.manifest["tag"])
+        historical = {k:v for k,v in self.manifest.items() if k != "product_name"}
+        self.assertIn("ZhiXing", notices.release_card(historical,"image",self.release["html_url"])["header"]["title"]["content"])
         for legacy in (False, True):
             renamed = notices.release_card({**self.manifest, "product_name": "tebb"}, "image", self.release["html_url"], legacy=legacy)
             self.assertEqual(renamed["header"]["title"]["content"], "tebb " + self.manifest["tag"])

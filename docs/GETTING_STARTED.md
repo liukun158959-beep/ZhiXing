@@ -1,11 +1,11 @@
-# tebb 0.2.3 使用说明
+# tebb 0.3.0 使用说明
 
-tebb 原名知行 · ZhiXing。当前公开的 v0.2.3 仍使用下列旧包名和入口；更名后的新包入口为 `tebb.exe`。品牌更名不重置用户数据。
+tebb 原名知行 · ZhiXing。本版入口为 `tebb.exe`，沿用原有用户数据；历史 v0.2.3 包仍使用旧入口 `ZhiXing.exe`。
 
 ## 启动
 
-1. 下载 `ZhiXing-0.2.3-windows-x64.zip`，解压到你选择的目录。不要直接从压缩包内运行，也不要只复制 exe。
-2. 双击 `ZhiXing.exe`。`runtime` 文件夹必须保留在旁边。Python 与 Atlas 已随包提供，普通使用不需要开发环境。
+1. 下载 `tebb-0.3.0-windows-x64.zip`，解压到你选择的目录。不要直接从压缩包内运行，也不要只复制 exe。
+2. 双击 `tebb.exe`。`runtime` 文件夹必须保留在旁边。Python 与 Atlas 已随包提供，普通使用不需要开发环境。
 3. 主窗显示启动动画，然后进入首次引导。桌宠默认显示内置小伴，无需额外素材；可在设置页换肤。
 
 支持 Windows 10/11 x64。需安装 Microsoft Edge WebView2 Runtime；若系统缺少，请从 [微软官方下载页](https://developer.microsoft.com/microsoft-edge/webview2/) 安装 Evergreen Runtime。当前包尚未做代码签名；Windows 可能显示未知发布者提示。

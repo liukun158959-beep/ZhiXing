@@ -68,6 +68,7 @@ async def check(port, model_port, root, restored=False):
 
     if restored:
         assert (await rpc("load_models"))["items"][0]["model"] == "release-smoke"
+        assert (await rpc("load_model_network"))["mode"] == "direct"
         assert not (await rpc("load_onboarding"))["show"]
         assert (await rpc("load_chat_log"))["items"]
         print("Restart preserves saved model, guide completion and history: OK")
@@ -75,8 +76,10 @@ async def check(port, model_port, root, restored=False):
     assert not (await rpc("load_models"))["items"]
     setup = await rpc("load_onboarding")
     assert setup["show"] and setup["data_dir"] == str(root)
-    assert not setup["checks"]["pet"]
+    assert setup["checks"]["pet"], "Every release includes the built-in circle pet"
+    assert not setup["checks"]["live2d"], "Private Live2D assets must not ship"
     assert (await rpc("load_notebook"))["sessions"] == []
+    await rpc("save_model_network", {"payload": {"mode": "direct"}})
     models = await rpc("save_model_entry", {"payload": {"base_url": f"http://127.0.0.1:{model_port}/v1",
                         "model": "release-smoke", "api_key": "release-smoke-only"}})
     assert "release-smoke-only" not in json.dumps(models)

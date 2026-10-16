@@ -1,6 +1,6 @@
 [package]
 name = "desk-companion-client"
-version = "0.2.3"
+version = "0.3.0"
 description = "tebb Agent workspace for Windows"
 edition = "2021"
 
