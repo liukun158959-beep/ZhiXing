@@ -59,6 +59,27 @@ const components: Components = {
   a: MdLink,
 };
 
+type StreamNode = { type: string; value?: string; children?: StreamNode[]; position?: { start: { offset?: number }; end: { offset?: number } }; tagName?: string; properties?: Record<string, unknown> };
+
+// Reveal only new text nodes, keeping the complete Markdown tree intact while streaming.
+function streamingText(source: string, from: number, revision: number) {
+  return () => (tree: StreamNode) => {
+    function visit(parent: StreamNode) {
+      parent.children = parent.children?.flatMap(node => {
+        if (node.type !== 'text') { if (node.children) visit(node); return [node]; }
+        const start = node.position?.start.offset, end = node.position?.end.offset;
+        if (start === undefined || end === undefined || end <= from || !node.value) return [node];
+        // Escaped/entity text may differ from source: reveal the token without guessing an offset.
+        const split = source.slice(start, end) === node.value ? Math.max(0, from - start) : 0;
+        const prefix = node.value.slice(0, split), tail = node.value.slice(split);
+        if (!tail) return [node];
+        return [...(prefix ? [{ type: 'text', value: prefix }] : []), { type: 'element', tagName: 'span', properties: { className: ['tebb-stream-new', `tebb-stream-phase-${revision % 2}`] }, children: [{ type: 'text', value: tail }] }];
+      });
+    }
+    visit(tree);
+  };
+}
+
 // 引号贴着 ** 时，CommonMark 不把 ** 当成加粗开头。标记后面补一个零宽空格，让加粗包住引号里的字。
 const QUOTE_AFTER_MARK = /^["“”„«»「」『』'‘’＂＇]/u;
 
@@ -176,7 +197,7 @@ export function PlainLinks(props: { text: string }) {
   return <>{nodes}</>;
 }
 
-export function Markdown(props: { text: string; cites?: number[]; onCite?: (n: number) => void; externalLinks?: boolean }) {
+export function Markdown(props: { text: string; cites?: number[]; onCite?: (n: number) => void; externalLinks?: boolean; reveal?: { from: number; revision: number } }) {
   const opened = loosenQuotedEmphasis(props.text);
   const text = props.onCite ? withCiteLinks(opened, props.cites || []) : opened;
   const view: Components = props.onCite
@@ -187,7 +208,7 @@ export function Markdown(props: { text: string; cites?: number[]; onCite?: (n: n
     } } : components;
   return (
     <div className="md" data-md="">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={view}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={props.reveal ? [streamingText(text, props.reveal.from, props.reveal.revision)] : []} components={view}>
         {text}
       </ReactMarkdown>
     </div>

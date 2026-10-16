@@ -52,13 +52,14 @@ test('visited pages preserve inputs, and their activity context pauses while hid
   await act(async()=>view.unmount());
 });
 
-test('streaming animates only appended text, then switches to Markdown without a timer clearing content',()=>{
-  const {StreamText}=load('stream-text',{'./Markdown':{Markdown:({text})=>React.createElement('article',null,text)}});let view;
+test('streaming passes complete Markdown and an appended reveal range, then retains output without a timer',()=>{
+  const {StreamText}=load('stream-text',{'./Markdown':{Markdown:({text,reveal})=>React.createElement('article',{'data-reveal':reveal},text)}});let view;
   act(()=>{view=create(React.createElement(StreamText,{text:'第一段',active:true}));});
   act(()=>view.update(React.createElement(StreamText,{text:'第一段，新增',active:true})));
-  assert.equal(text(view.root.findByProps({className:'tebb-stream-new'})),'，新增');
+  assert.equal(text(view.root.findByType('article')),'第一段，新增');
+  assert.equal(view.root.findByType('article').props['data-reveal'].from,'第一段'.length);
   act(()=>view.update(React.createElement(StreamText,{text:'第一段，新增',active:false})));
-  assert.equal(text(view.root.findByType('article')),'第一段，新增');act(()=>view.unmount());
+  assert.equal(text(view.root.findByType('article')),'第一段，新增');assert.equal(view.root.findByType('article').props['data-reveal'],undefined);act(()=>view.unmount());
 });
 
 test('floating chat shares real conversation, scopes drafts, handles IME and closes without cancelling',async()=>{

@@ -99,7 +99,6 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   const [inspector, setInspector] = useState(false);
   const [localDeveloper, setLocalDeveloper] = useState(readDeveloperMode);
   const developer = developerMode ?? localDeveloper;
-  const [markdownPreview, setMarkdownPreview] = useState(false);
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [deleting, setDeleting] = useState("");
   const [renaming, setRenaming] = useState("");
@@ -172,7 +171,6 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     setStorageError("内容已加入当前草稿，尚未发送（单条消息最多4000字）。");
   }, [composeRequest]);
   useEffect(() => { if (!developer) setMemoryConversation(""); }, [developer]);
-  useEffect(() => { setMarkdownPreview(false); }, [state.selected]);
   useEffect(() => { if (!window.addEventListener) return;
     const create = () => dispatch({ type: 'new_chat' });
     const detail = () => { setTab('tasks'); setInspector(true); };
@@ -211,14 +209,6 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     const a = member(c.coordinator)!;
     setMemoryConversation(id); setMemoryAgent(a.id); setMemoryDraft(a.memory); setMenu(null);
   }
-  function insertMarkdown(before: string, after = "") {
-    const start = input.current?.selectionStart ?? draft.length;
-    const finish = input.current?.selectionEnd ?? start;
-    const selected = draft.slice(start, finish) || "文字";
-    const value = draft.slice(0, start) + before + selected + after + draft.slice(finish);
-    if (value.length > 4000) { setStorageError("格式插入后超过4000字，请缩短内容。"); return; }
-    setDraft(value); setMarkdownPreview(false); input.current?.focus();
-  }
   function select(id: string) {
     dispatch({ type: "select", id }); setTarget(""); setUpdateRun(""); setFocusedRun(""); setMobileList(false); setPicker("");
   }
@@ -232,7 +222,6 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     if (live) { if (!await sendAction(action)) return; }
     else { const next = demoReducer(state, action); dispatch(action); if (next.notice) return; }
     setDraft(""); setUpdateRun(""); setPicker(""); setSelectedSkills(old => ({ ...old, [conversation.id]: [] })); setAttachmentMap(old => ({ ...old, [conversation.id]: [] })); attachments.forEach(a => onDetach?.(a.id));
-    if (real || updateRun) { setInspector(true); setTab("tasks"); }
   }
   function addAgent() {
     setEditingAgent({ id: "", name: "", role: "", mark: "A", tone: "sage", model: real ? "" : "自定义模型 · 演示", tools: [], memory: "", avatar: "owl", personality: "" });
@@ -274,7 +263,6 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
         <div className="cp-sidebar-title"><strong>伙伴聊天</strong><div className="cp-sidebar-actions"><button className="cp-icon-button" aria-label="新对话" title="新对话" onClick={() => dispatch({type:"new_chat"})}><AppIcon name="new_chat" /></button><button className="cp-icon-button cp-create-group" aria-label="新建协作群" title="新建协作群" onClick={() => {setEditingGroup(null);setGroupOpen(true);}}><AppIcon name="new_group" /></button></div></div>
         <div className="cp-list-switch" role="tablist" aria-label="聊天导航"><button role="tab" aria-selected={listView==='history'} onClick={()=>setListView('history')}>对话</button><button role="tab" aria-selected={listView==='companions'} onClick={()=>setListView('companions')}>伙伴</button></div>
         {listView === 'history' ? <div role="tabpanel" aria-label="对话记录">
-          <div className="cp-list-heading"><span>对话记录</span></div>
           {[...state.conversations].reverse().map(item => <button key={item.id} data-conversation={item.id} data-chat-partner={item.kind==='dm' ? item.coordinator : undefined} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onContextMenu={event => openMenu(item.id,event)} onKeyDown={event => menuKeys(item.id,event)} onClick={() => select(item.id)}>
             <Avatar group={item.kind==='group'} agent={member(item.coordinator)} /><span><strong>{item.title}</strong><small>{item.kind==='group' ? `协作群 · ${item.members.length} 位伙伴` : member(item.coordinator)?.name}{item.legacy ? ' · 历史' : ''}</small></span>{state.runs.some(run => run.conversation===item.id && runActive(run)) && <i className="cp-live-dot" />}</button>)}
         </div> : <div role="tabpanel" aria-label="伙伴目录">
@@ -290,43 +278,41 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
         <header className="cp-chat-header"><div className="cp-chat-title"><button className="cp-icon-button cp-mobile-menu" aria-label="切换会话列表" aria-expanded={mobileList} onClick={() => setMobileList(!mobileList)}>☰</button><Avatar group={conversation.kind === "group"} agent={member(conversation.coordinator)} />
           <div><h1>{conversation.title}</h1><span>{conversation.kind === "group" ? `你与 ${members.length} 位 Agent · ${member(conversation.coordinator)?.name} 协调` : member(conversation.coordinator)?.role}</span></div></div>
           <div className="cp-context-actions">{real && onProject && <button className="cp-button cp-project-button" aria-label="工作目录与权限" title={state.workspace?.primary || "打开项目文件夹与配置权限"} onClick={onProject}><AppIcon name="folder"/><span>{state.workspace?.primary?.split(/[\\/]/).pop() || "文件夹"}</span></button>}<button className="cp-button" aria-label="当前任务" aria-expanded={inspector && tab==='tasks'} onClick={() => { setInspector(!(inspector && tab==='tasks')); setTab('tasks'); }} title="任务"><AppIcon name="tasks" /></button><button className="cp-button" aria-label="聊天伙伴" onClick={() => { setInspector(!(inspector && tab==='members')); setTab('members'); }} aria-expanded={inspector && tab==='members'} title="伙伴"><AppIcon name="members" /></button><button className="cp-button" aria-label="待你处理" onClick={() => { setInspector(!(inspector && tab==='inbox')); setTab('inbox'); }} aria-expanded={inspector && tab==='inbox'} title="待办"><AppIcon name="inbox" />{pending.length > 0 && <small className="cp-icon-count">{pending.length}</small>}</button></div></header>
-        {conversation.kind === "group" && <div className="cp-goal"><span>共同目标</span><p>{conversation.goal || "为这个群确定一个目标，开始协作。"}</p></div>}
+        {conversation.kind === "group" && <details className="cp-goal"><summary><span>共同目标</span><span>{conversation.goal || "为这个群确定一个目标，开始协作。"}</span></summary><p>{conversation.goal || "可在伙伴侧栏中调整协作群目标。"}</p></details>}
         <div className="cp-message-list" aria-label={real ? "协作聊天记录" : "原型聊天记录"}>
-          <div className="cp-date-line"><span>一个持续协作的空间</span></div>
           {!messages.length && <div className="cp-empty-chat"><Avatar agent={member(conversation.coordinator)} /><h2>从一句话开始</h2><p>直接聊天，或者将目标交给 Agent。<br />私聊与协作群分别保留各自的消息。</p><button className="cp-button" onClick={() => { setDraft("帮我整理这周的研究方向"); setMode("auto"); input.current?.focus(); }}>试试交给 Agent ↗</button></div>}
           {messages.map(item => item.kind === "notice" ? <p key={item.id} className="cp-system-message">{item.text}</p> : <article key={item.id} className={`cp-message ${item.sender === "user" ? "cp-message-user" : ""}`}>
             {item.sender === "user" ? <span className="cp-user-avatar">你</span> : <Avatar agent={member(item.sender)} />}
-            <div className="cp-message-content"><div className="cp-message-author"><strong>{item.sender === "user" ? "你" : member(item.sender)?.name}</strong><span>{item.sender === "user" ? "" : "AGENT"}</span>{item.kind === "result" && <span className="cp-result-tag">成果</span>}</div>
-              <div className="cp-markdown"><StreamText text={item.text || (real ? "正在等待模型响应…" : "")} active={!!item.run && runs.some(r=>r.id===item.run && runActive(r))} externalLinks={standalone} /></div>{item.run && (developer || !["chat","route","compress"].includes(runs.find(run => run.id===item.run)?.kind || "")) && <button className="cp-message-reference" onClick={() => { setFocusedRun(item.run!); setInspector(true); setTab("tasks"); }}>↗ 关联任务</button>}
-              {real && item.sender!=="user" && item.run && <small className="cp-message-usage">{runs.find(r => r.id===item.run)?.model} · 输入 {runs.find(r => r.id===item.run)?.input_tokens || 0} / 输出 {runs.find(r => r.id===item.run)?.output_tokens || 0}</small>}
+            <div className="cp-message-content"><div className="cp-message-author"><strong>{item.sender === "user" ? "你" : member(item.sender)?.name}</strong>{item.kind === "result" && <span className="cp-result-tag">成果</span>}</div>
+              <div className="cp-markdown"><StreamText text={item.text || (real ? "正在等待模型响应…" : "")} active={!!item.run && runs.some(r=>r.id===item.run && runActive(r))} externalLinks={standalone} /></div>
+              {item.sender !== 'user' && item.run && <div className="cp-message-footer">{(developer || !["chat","route","compress"].includes(runs.find(run => run.id===item.run)?.kind || "")) && <button className="cp-message-reference" onClick={() => { setFocusedRun(item.run!); setInspector(true); setTab("tasks"); }}>↗ 关联任务</button>}
+              {real && <small className="cp-message-usage" title="本条消息的执行模型与输入／输出 token 用量">{runs.find(r => r.id===item.run)?.model} · ↑ {runs.find(r => r.id===item.run)?.input_tokens || 0} / ↓ {runs.find(r => r.id===item.run)?.output_tokens || 0}</small>}
               {real && backend && backend.scope!=='collaboration' && item.sender!=='user' && item.run && runs.some(r=>r.id===item.run && r.state==='succeeded' && ['task','chat','route'].includes(r.kind || '') && !runs.some(child=>child.parent===r.id)) && <button className="cp-message-reference" onClick={async()=>{try { const result=await rpc<{ok:boolean;error?:string}>(backend,'save_collaboration_note',{run_id:item.run}); if(!result.ok) throw new Error(result.error || '收藏失败'); setStorageError('已收藏到知识库的「伙伴成果」笔记，可继续作为资料使用。'); window.dispatchEvent(new Event('tebb-notebooks-changed')); } catch(error){setStorageError(String(error));} }}>收藏到笔记</button>}
-              {item.kind === "result" && runs.find(run => run.id === item.run)?.artifact && <button className="cp-artifact-link" onClick={() => setArtifactId(item.run!)}><span>▤</span><span><strong>{real ? "成果文档" : "成果文档 · 演示"}</strong><small>{real ? "打开阅读实际成果" : "打开阅读，查看交付确认"}</small></span><span>↗</span></button>}
+              {item.kind === "result" && runs.find(run => run.id === item.run)?.artifact && <button className="cp-artifact-link" onClick={() => setArtifactId(item.run!)} title="打开完整成果文档"><span>▤</span><strong>{real ? "成果文档" : "成果文档 · 演示"}</strong><span>↗</span></button>}</div>}
             </div></article>)}
           <div ref={end} />
         </div>
         <div className="cp-compose-area">
-          <div className="cp-live-bar"><span><i className={active.length ? "cp-live-dot" : "cp-idle-dot"} />{real ? `${active.length} 项工作进行中 · 聊天与长任务独立排队` : active.length ? `${active.length} 项后台演示 · ${automatic ? "自动推进中" : "已暂停，可逐步查看"}` : "没有进行中的后台演示"}</span>
-            {!real && <div><button disabled={!active.length} onClick={() => setAutomatic(!automatic)}>{automatic ? "暂停" : "自动演示"}</button><button disabled={!active.length} onClick={() => dispatch({ type: "advance" })}>推进一步 →</button></div>}</div>
+          {(active.length > 0 || !real) && <div className="cp-live-bar"><button type="button" className="cp-activity-link" aria-label="查看运行任务" onClick={() => { setInspector(true); setTab('tasks'); }}><i className={active.length ? "cp-live-dot" : "cp-idle-dot"} />{real ? `本会话 ${runs.filter(runActive).length} 项运行中${active.length > runs.filter(runActive).length ? ` · 其他会话 ${active.length - runs.filter(runActive).length} 项` : ''}` : active.length ? `${active.length} 项后台演示 · ${automatic ? "自动推进中" : "已暂停"}` : "没有进行中的后台演示"}</button>
+            {!real && <div><button disabled={!active.length} onClick={() => setAutomatic(!automatic)}>{automatic ? "暂停" : "自动演示"}</button><button disabled={!active.length} onClick={() => dispatch({ type: "advance" })}>推进一步 →</button></div>}</div>}
           {selectedRun && <div className="cp-reply-context"><span>补充给：<strong>{selectedRun.title}</strong>{!runActive(selectedRun) && " · 已结束，请取消引用"}</span><button aria-label="取消补充要求" onClick={() => setUpdateRun("")}>×</button></div>}
           <form className="cp-composer" onSubmit={event => { event.preventDefault(); submit(); }}>
-            <div className="cp-markdown-tools" role="toolbar" aria-label="Markdown 编辑"><button type="button" aria-label="插入粗体" onClick={() => insertMarkdown("**", "**")}><b>B</b></button><button type="button" aria-label="插入代码" onClick={() => insertMarkdown("`", "`")}>〈/〉</button><button type="button" aria-label="插入列表" onClick={() => insertMarkdown("\n- ")}>≡</button><button type="button" onClick={() => setMarkdownPreview(!markdownPreview)} aria-pressed={markdownPreview}>{markdownPreview ? "继续编辑" : "预览 Markdown"}</button></div>
-            {markdownPreview && <div className="cp-draft-preview cp-markdown" aria-label="Markdown 草稿预览"><Markdown text={draft || "*写点什么，再来预览。*"} externalLinks={standalone} /></div>}
-            <textarea hidden={markdownPreview} ref={input} value={draft} maxLength={4000} aria-label={real ? "协作消息" : "原型消息"} rows={2} placeholder={updateRun ? "补充这项任务的要求…" : "和 Agent 聊聊，或 @ 一位成员…"}
+            <textarea ref={input} value={draft} maxLength={4000} aria-label={real ? "协作消息" : "原型消息"} rows={2} placeholder={updateRun ? "补充这项任务的要求…" : "发消息，@ 伙伴，/ 选择技能…"}
               onChange={event => changeDraft(event.target.value, event.target.selectionStart ?? event.target.value.length)} onSelect={event => { const position = event.currentTarget.selectionStart; setCursor(position); const match = /(?:^|\s)([@/])([^\s@/]*)$/.exec(draft.slice(0,position)); if (!match) setPicker(""); }} aria-autocomplete="list" aria-controls={picker ? "cp-composer-options" : undefined} aria-expanded={!!picker} aria-activedescendant={picker && options.length ? `cp-option-${pickerIndex}` : undefined} onKeyDown={event => {
                 if (event.nativeEvent.isComposing || event.keyCode === 229) return;
                 if (picker && event.key === 'Escape') { event.preventDefault(); setPicker(''); return; }
                 if (picker && ['ArrowDown','ArrowUp'].includes(event.key)) { event.preventDefault(); setPickerIndex(old => (old + (event.key==='ArrowDown' ? 1 : options.length-1)) % Math.max(1,options.length)); return; }
                 if (picker && event.key === 'Enter') { event.preventDefault(); if (options.length) chooseOption(pickerIndex); return; }
                 if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); submit(); } }} />
-            {picker && !markdownPreview && <ComposerPicker anchor={input} className="cp-composer-picker" id="cp-composer-options" label={picker==='members' ? '选择成员' : '选择技能'} onClose={()=>setPicker('')}>{options.map((option,i) => <button type="button" role="option" id={`cp-option-${i}`} key={option.id} aria-selected={pickerIndex===i} onMouseDown={event => event.preventDefault()} onClick={() => chooseOption(i)}><strong>{option.name}</strong><small>{option.detail}</small></button>)}{!options.length && <p>没有匹配项{picker==='skills' ? '，技能在桌面客户端加载' : ''}。按 Esc 关闭。</p>}</ComposerPicker>}
+            {picker && <ComposerPicker anchor={input} className="cp-composer-picker" id="cp-composer-options" label={picker==='members' ? '选择成员' : '选择技能'} onClose={()=>setPicker('')}>{options.map((option,i) => <button type="button" role="option" id={`cp-option-${i}`} key={option.id} aria-selected={pickerIndex===i} onMouseDown={event => event.preventDefault()} onClick={() => chooseOption(i)}><strong>{option.name}</strong><small>{option.detail}</small></button>)}{!options.length && <p>没有匹配项{picker==='skills' ? '，技能在桌面客户端加载' : ''}。按 Esc 关闭。</p>}</ComposerPicker>}
             <div className="cp-selection-chips">{skills.map(skill => <button type="button" key={skill} onClick={() => setSelectedSkills(old => ({ ...old, [conversation.id]: skills.filter(s => s!==skill) }))}>/{skill} ×</button>)}{attachments.map(file => <button type="button" key={file.id} onClick={() => removeAttachment(file.id)}>{file.name} ×</button>)}</div>
             <div className="cp-composer-bottom"><div className="cp-composer-controls"><button type="button" aria-label="添加附件" disabled={!onAttach} onClick={onAttach}>＋ 附件</button><button type="button" onClick={() => recipient && setEditingAgent(recipient)}>工具</button><button type="button" aria-label="选择技能" onClick={() => { changeDraft(draft+(draft && !draft.endsWith(' ') ? ' ' : '')+'/'); input.current?.focus(); }}>/ Skill</button><button type="button" aria-label="选择成员" onClick={() => { changeDraft(draft+(draft && !draft.endsWith(' ') ? ' ' : '')+'@'); input.current?.focus(); }}>@</button>
-              <label><span>当前模型</span><select aria-label="本轮模型" value={modelPick} onChange={e => setModelPick(e.target.value)}><option value="">{recipientModel}（默认）</option>{state.models?.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}</select></label></div>
+              <label><select aria-label="本轮模型" title="本轮模型" value={modelPick} onChange={e => setModelPick(e.target.value)}><option value="">{recipientModel}（默认）</option>{state.models?.map(model => <option key={model.id} value={model.id}>{model.model}</option>)}</select></label></div>
               <button type="submit" className="cp-send" disabled={live?.busy || !draft.trim() || (!!selectedRun && !runActive(selectedRun))}>{updateRun ? '提交补充' : '发送'}<span>↑</span></button></div>
             {developer && <details className="cp-parameter-debug"><summary>参数与上下文调试</summary><label>推理力度<select value={sampling.reasoning_effort} onChange={e => setSampling({ ...sampling, reasoning_effort:e.target.value })}>{['low','high','max'].map(v => <option key={v}>{v}</option>)}</select></label><label>温度<input type="number" min="0" max="1" step="0.1" value={sampling.temperature} onChange={e => setSampling({ ...sampling, temperature:Number(e.target.value) })} /></label><label>top_p<input type="number" min="0.01" max="1" step="0.01" value={sampling.top_p} onChange={e => setSampling({ ...sampling, top_p:Number(e.target.value) })} /></label><button type="button" onClick={() => dispatch({ type:'compress' })}>整理当前会话上下文</button></details>}
 
           </form>
-          <div className="cp-composer-hint"><span>支持 Markdown · Enter 发送 · Shift + Enter 换行</span><span>{real ? `${recipient?.id === "coder" ? 12 : 6} 次调用预算 · 可随时停止` : "演示数据仅存于此设备"}</span></div>
+          <div className="cp-composer-hint"><span>Enter 发送 · Shift + Enter 换行</span>{!real && <span>演示数据仅存于此设备</span>}</div>
 
           {(state.notice || storageError || live?.error) && <p className="cp-notice" role="status">{live?.error || storageError || state.notice}</p>}
         </div>

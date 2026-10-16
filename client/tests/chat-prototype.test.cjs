@@ -291,23 +291,59 @@ test('Markdown formats messages, tables, fenced code and artifacts, and rejects 
   await act(async () => view.unmount());
 });
 
-test('Markdown preview never submits, formatting preserves drafts, and an inserted source stays in this conversation', async () => {
+test('composer keeps a plain draft without preview controls and inserts sources without submitting', async () => {
   const { saved } = environment(); const { ChatPrototype } = load('chat-prototype'); let view;
   await act(async () => { view = create(React.createElement(ChatPrototype, {standalone:true})); });
   const composer = () => view.root.findByProps({ 'aria-label': '原型消息' });
   const before = JSON.parse(saved.get(DEMO_STORAGE)).messages.length;
   await act(async () => composer().props.onChange({ target: { value: '**草稿重点**' } }));
-  await act(async () => button(view, '预览 Markdown').props.onClick());
-  assert.equal(composer().props.hidden, true);
-  assert(view.root.findByProps({ 'aria-label': 'Markdown 草稿预览' }).findByType('strong'));
+  assert.equal(button(view, '预览 Markdown'), undefined);
+  assert.equal(button(view, '插入代码'), undefined);
+  assert.equal(view.root.findAllByProps({ 'aria-label': 'Markdown 草稿预览' }).length, 0);
+  assert(!composer().props.hidden);
   assert.equal(JSON.parse(saved.get(DEMO_STORAGE)).messages.length, before);
-  await act(async () => button(view, '继续编辑').props.onClick());
   assert.equal(composer().props.value, '**草稿重点**');
-  await act(async () => button(view, '插入代码').props.onClick());
-  assert(composer().props.value.includes('`文字`'));
   await act(async () => view.update(React.createElement(ChatPrototype, { composeRequest: { id: 1, text: 'https://example.org/source' } })));
   assert(composer().props.value.endsWith('https://example.org/source'));
   assert.equal(JSON.parse(saved.get(DEMO_STORAGE)).messages.length, before);
+  await act(async () => view.unmount());
+});
+
+test('streaming output renders Markdown immediately, reveals new text and keeps safe rich output on completion', async () => {
+  const { StreamText } = load('stream-text'); let view;
+  const first = '# 研究结论\n\n**重点**';
+  await act(async () => { view = create(React.createElement(StreamText, { text: first, active: true, externalLinks: true })); });
+  assert.equal(text(view.root.findByType('h1')), '研究结论');
+  assert.equal(text(view.root.findByType('strong')), '重点');
+  const next = first + '，补充内容\n\n| 项目 | 结果 |\n| --- | --- |\n| A | B |\n\n```js\nconst a = 1;\n```\n\n[来源](https://example.org) [危险](javascript:alert%281%29)\n\n<script>alert(1)</script>';
+  await act(async () => view.update(React.createElement(StreamText, { text: next, active: true, externalLinks: true })));
+  assert.equal(view.root.findAllByType('table').length, 1);
+  assert(view.root.findAllByType('code').some(n => text(n).includes('const a = 1;')));
+  assert(view.root.findAllByType('span').filter(n => n.props.className?.includes('tebb-stream-new')).every(n => !text(n).includes('研究结论') && !text(n).includes('重点')));
+  assert(view.root.findAllByType('span').some(n => n.props.className?.includes('tebb-stream-new') && text(n).includes('补充内容')));
+  assert.equal(view.root.findAllByType('script').length, 0);
+  assert(!view.root.findAllByType('a').some(n => /^javascript:/i.test(n.props.href || '')));
+  assert.equal(view.root.findAllByProps({ 'aria-label': '正在输出' }).length, 1);
+  await act(async () => view.update(React.createElement(StreamText, { text: next, active: false, externalLinks: true })));
+  assert.equal(view.root.findAllByType('table').length, 1);
+  assert.equal(view.root.findAllByProps({ 'aria-label': '正在输出' }).length, 0);
+  assert.equal(view.root.findAllByType('span').filter(n => n.props.className?.includes('tebb-stream-new')).length, 0);
+  assert.equal(view.root.findAllByType('a').find(n => n.props.href === 'https://example.org/').props.target, '_blank');
+  await act(async () => view.unmount());
+});
+
+test('sending keeps task details closed, preserves raw Markdown and leaves progress reachable', async () => {
+  environment(); const { ChatPrototype } = load('chat-prototype'); const state = initialDemo(), actions = [];
+  let view; await act(async () => { view = create(React.createElement(ChatPrototype, { live: { state, busy: false, error: '', act: async action => { actions.push(action); return true; } } })); });
+  assert.equal(view.root.findByProps({ 'aria-label': '协作详情' }).props['aria-hidden'], true);
+  const input = view.root.findByProps({ 'aria-label': '协作消息' });
+  await act(async () => input.props.onChange({ target: { value: '**完整消息**\n\n```py\nprint(1)\n```' } }));
+  await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+  assert.equal(actions[0].text, '**完整消息**\n\n```py\nprint(1)\n```');
+  assert.equal(input.props.value, '');
+  assert.equal(view.root.findByProps({ 'aria-label': '协作详情' }).props['aria-hidden'], true);
+  await act(async () => button(view, '查看运行任务').props.onClick());
+  assert.equal(view.root.findByProps({ 'aria-label': '协作详情' }).props['aria-hidden'], false);
   await act(async () => view.unmount());
 });
 
