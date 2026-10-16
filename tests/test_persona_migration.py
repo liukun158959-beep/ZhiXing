@@ -25,7 +25,7 @@ class PersonaMigrationTests(unittest.TestCase):
             self.assertEqual(backup.read_bytes(),original)
 
     def test_progress_retains_real_finished_task_without_exposing_reasoning(self):
-        task = dict(id='work',state='running',text='验证任务',answer='部分结果',events=[
+        task = dict(id='work',state='running',created=123,error='',text='验证任务',answer='部分结果',events=[
             dict(seq=1,kind='status',data='正在检查'),dict(seq=2,kind='think',data='private reasoning')])
         tasks = SimpleNamespace(settings={'pet_progress':True},list=lambda:{'items':[task]},get=lambda _id:task)
         host=SimpleNamespace(tasks=tasks);bridge=Bridge(host)
@@ -34,5 +34,8 @@ class PersonaMigrationTests(unittest.TestCase):
         result=bridge.load_task_progress()['task']
         self.assertEqual(result['state'],'succeeded');self.assertEqual(result['answer'],'实际完成')
         self.assertEqual(result['events'],['正在检查'])
+        self.assertEqual(result['created'],123)
+        task.update(state='timed_out',error='模型调用超时')
+        self.assertEqual(bridge.load_task_progress()['task']['error'],'模型调用超时')
         tasks.settings['pet_progress']=False
         self.assertFalse(bridge.load_task_progress()['enabled'])

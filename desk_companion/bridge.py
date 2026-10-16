@@ -230,6 +230,7 @@ class Bridge:
                 visible.append(str(data) if isinstance(data,str) else f"{data.get('tool','')} · {data.get('status','')}".strip(' ·'))
         return {"ok": True, "enabled": True, "task": {"id": task["id"], "status": status["data"] if status else "",
                 "state": task["state"], "text": task["text"][:200], "answer": task["answer"], "events": visible[-120:],
+                "created": task["created"], "error": task["error"],
                 "seq": events[-1]["seq"] if events else 0}}
 
     def start_feishu_agent(self) -> dict:

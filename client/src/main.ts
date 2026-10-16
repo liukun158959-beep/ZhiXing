@@ -2,6 +2,8 @@
 // 宠物窗：内置矢量小伴 / 可选 Live2D、拖动、任务气泡和右键菜单。
 // 穿透由 Rust 轮询命中区域。拖动期间锁住穿透，避免松手事件被吃掉。
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { PetFeedback, type FeedbackProgress, type FeedbackRun } from './pet-feedback';
 import {
   BUBBLE_MS,
   type Bubble,
@@ -29,6 +31,20 @@ const menuEl = document.getElementById("menu") as HTMLDivElement;
 
 let gesture: Gesture = IDLE;
 let bubble: Bubble = emptyBubble();
+const feedback = new PetFeedback();
+let feedbackBubble = false, chatVisible = false, hasFeedbackSnapshot = false;
+let lastProgress:FeedbackProgress = {enabled:true};
+let lastRuns:FeedbackRun[] = [];
+function refreshFeedback() {
+  if(!hasFeedbackSnapshot)return;
+  const value=feedback.update(lastProgress,lastRuns,chatVisible);
+  if(value){
+    // Asset/runtime errors have their own explicit recovery instructions.
+    if(bubble.open && bubble.error && !feedbackBubble)return;
+    feedbackBubble=true;
+    bubble={open:true,text:value.text,error:value.error,until:0,index:-1};renderBubble();
+  } else if(feedbackBubble){feedbackBubble=false;bubble=dismissBubble(bubble);renderBubble();}
+}
 let gliding = false;
 let menuControls: ReturnType<typeof installPetMenu> | null = null;
 
@@ -76,6 +92,7 @@ function renderMenu(open: boolean, x = 0, y = 0): void {
 }
 
 function showError(message: string): void {
+  feedbackBubble = false;
   bubble = errorBubble(message);
   renderBubble();
 }
@@ -195,7 +212,7 @@ function runMenu(action: string): void {
     hide: { label: "隐藏桌宠", run: () => rust("set_pet_visible", { visible: false }) },
     chat: { label: "打开对话框", run: () => rust("set_pet_chat_visible", { visible: true }) },
     close_chat: { label: "关闭对话框", run: () => rust("set_pet_chat_visible", { visible: false }) },
-    close_bubble: { label: "关闭提示", run: async () => { bubble = dismissBubble(bubble); renderBubble(); } },
+    close_bubble: { label: "关闭提示", run: async () => { if(feedbackBubble)feedback.dismiss();feedbackBubble=false;bubble = dismissBubble(bubble); renderBubble(); } },
     main: { label: "打开主窗口", run: () => rust("show_main") },
     quit: { label: "退出", run: () => rust("quit_app") },
   };
@@ -262,6 +279,12 @@ function installDebug(): void {
 
 async function main(): Promise<void> {
   installDebug();
+  if(isTauri()){
+    try {
+      await listen<boolean>('pet-chat-visible',event=>{chatVisible=event.payload;refreshFeedback();});
+      const state=await invoke<{visible:boolean}>('get_pet_chat_state');chatVisible=state.visible;
+    } catch { /* Native visibility is retried by the next user toggle. */ }
+  }
   window.addEventListener("pointerdown", onPointerDown);
   window.addEventListener("pointermove", onPointerMove);
   window.addEventListener("pointerup", onPointerUp);
@@ -331,9 +354,10 @@ async function main(): Promise<void> {
       polling = true;
       try {
         const [progress, collaboration] = await Promise.all([
-          rpc<{ enabled: boolean; task?: { id: string; state: string } }>(info, "load_task_progress"),
-          rpc<{ state: { runs: {state:string}[] } }>(info, "load_collaboration"),
+          rpc<FeedbackProgress>(info, "load_task_progress"),
+          rpc<{ state: { runs: FeedbackRun[] } }>(info, "load_collaboration"),
         ]);
+        lastProgress=progress;lastRuns=collaboration.state.runs;hasFeedbackSnapshot=true;refreshFeedback();
         setPetWorking(!!progress.enabled && ((!!progress.task && ['running','queued','cancelling'].includes(progress.task.state)) || collaboration.state.runs.some(run=>['running','queued','waiting','pending','cancelling'].includes(run.state))));
       } catch { /* 接口重连期间保留现有形象，不反复弹出错误。 */ }
       finally { polling = false; }

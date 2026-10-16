@@ -4,6 +4,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 const LABEL: &str = "pet-chat";
 static PINNED: AtomicBool = AtomicBool::new(false);
 
+fn notify_visibility(app: &AppHandle, visible: bool) {
+    for label in [LABEL, "pet"] {
+        if let Some(window)=app.get_webview_window(label) { let _=window.emit("pet-chat-visible",visible); }
+    }
+}
+
 #[derive(serde::Serialize)]
 pub struct ChatState { visible: bool, pinned: bool }
 
@@ -47,7 +53,8 @@ fn position(anchor: (i32,i32,i32,i32), area: (i32,i32,i32,i32), size: (i32,i32))
 #[tauri::command]
 pub async fn set_pet_chat_visible(app: AppHandle, visible: bool) -> Result<(),String> {
     if !visible {
-        if let Some(chat)=app.get_webview_window(LABEL) { chat.emit("pet-chat-visible",false).map_err(|e|e.to_string())?;chat.hide().map_err(|e|e.to_string())?; }
+        if let Some(chat)=app.get_webview_window(LABEL) { chat.hide().map_err(|e|e.to_string())?; }
+        notify_visibility(&app,false);
         return Ok(());
     }
     let chat=if let Some(chat)=app.get_webview_window(LABEL) { chat } else {
@@ -64,8 +71,8 @@ pub async fn set_pet_chat_visible(app: AppHandle, visible: bool) -> Result<(),St
             .build().map_err(|e|e.to_string())?;
         let close=chat.clone();
         chat.on_window_event(move|event| match event {
-            tauri::WindowEvent::CloseRequested{api,..} => { api.prevent_close();let _=close.emit("pet-chat-visible",false);let _=close.hide(); },
-            tauri::WindowEvent::Focused(false) if hide_on_blur(PINNED.load(Ordering::Relaxed),pressing_pet(close.app_handle())) => { let _=close.emit("pet-chat-visible",false);let _=close.hide(); },
+            tauri::WindowEvent::CloseRequested{api,..} => { api.prevent_close();let _=close.hide();notify_visibility(close.app_handle(),false); },
+            tauri::WindowEvent::Focused(false) if hide_on_blur(PINNED.load(Ordering::Relaxed),pressing_pet(close.app_handle())) => { let _=close.hide();notify_visibility(close.app_handle(),false); },
             _ => (),
         });
         chat
@@ -82,7 +89,7 @@ pub async fn set_pet_chat_visible(app: AppHandle, visible: bool) -> Result<(),St
         }
     }
     chat.show().map_err(|e|e.to_string())?;
-    chat.emit("pet-chat-visible",true).map_err(|e|e.to_string())?;
+    notify_visibility(&app,true);
     chat.set_focus().map_err(|e|e.to_string())
 }
 

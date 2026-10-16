@@ -11,6 +11,35 @@ function load(name, mocks={}) {
 }
 const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
 
+test('pet retains real progress after chat closes, reports failure, and respects dismissal for descendants',()=>{
+  const filename=path.resolve(__dirname,'../src/pet-feedback.ts');const mod=new Module(filename,module);
+  mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,filename);
+  const {PetFeedback}=mod.exports;const feedback=new PetFeedback();const progress={enabled:true};
+  const old={id:'old',state:'failed',error:'上次启动前的失败'};
+  assert.equal(feedback.update(progress,[old],false),null);
+  const run={id:'new',state:'running',kind:'chat',title:'hello',events:['正在调用模型']};
+  assert.equal(feedback.update(progress,[old,run],true),null);
+  assert.match(feedback.update(progress,[old,run],false).text,/正在调用模型/);
+  run.answer='你好，';assert.match(feedback.update(progress,[old,run],false).text,/你好/);
+  run.state='succeeded';run.answer='你好，有什么可以帮你？';
+  assert.match(feedback.update(progress,[old,run],false).text,/已完成.*hello\n你好/);
+  feedback.dismiss();assert.equal(feedback.update(progress,[old,run],false),null);
+  const child={id:'child',parent:'new',state:'running'};
+  assert.equal(feedback.update(progress,[old,run,child],false),null);
+  const next={id:'next',state:'running',kind:'route',answer:'{"mode":"task","instructions":"raw JSON"}'};
+  assert(!feedback.update(progress,[old,run,child,next],false).text.includes('raw JSON'));
+  next.state='timed_out';next.error='模型调用超时';child.state='succeeded';
+  assert.equal(feedback.update(progress,[old,run,child,next],false).error,true);
+  assert.match(feedback.current.text,/模型调用超时/);
+  assert.equal(feedback.update({enabled:false},[old,run,child,next],false),null);
+  const concurrent=new PetFeedback();const ongoing={id:'ongoing',created:1,state:'running'};
+  concurrent.update(progress,[ongoing],false);
+  const failed={id:'fresh',created:2,state:'failed',error:'新消息调用失败'};
+  assert.match(concurrent.update(progress,[ongoing,failed],false).text,/新消息调用失败/);
+  assert.match(concurrent.update(progress,[ongoing,failed],true) || '',/^$/);
+  assert.match(concurrent.update(progress,[ongoing,failed],false).text,/新消息调用失败/);
+});
+
 test('visited pages preserve inputs, and their activity context pauses while hidden',async()=>{
   const {PageStack,usePageActive}=load('page-stack');let mounts=0;
   function Page(){const [draft,setDraft]=React.useState('');const active=usePageActive();React.useEffect(()=>{mounts++;},[]);return React.createElement('input',{value:draft,'data-active':active,onChange:e=>setDraft(e.target.value)});}

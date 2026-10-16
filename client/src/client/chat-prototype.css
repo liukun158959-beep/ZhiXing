@@ -498,8 +498,11 @@
 .cp-context-actions .cp-button:hover,
 .cp-context-actions .cp-button[aria-expanded="true"] { background:transparent !important; border-color:transparent; box-shadow:none; }
 .cp-context-actions .cp-button:hover { color:hsl(var(--primary)); }
-.pet-chat-pin svg { display:block; width:16px; height:16px; margin:auto; }
-.pet-chat-pin[aria-pressed="true"] { color:hsl(var(--primary)); }
+.pet-chat-pin { display:grid; place-items:center; border-radius:6px; background:transparent; border:0; transition:color .15s,background-color .15s; }
+.pet-chat-pin svg { display:block; width:18px; height:18px; margin:auto; transform:rotate(35deg); transition:transform .15s; }
+.pet-chat-pin:hover { background:hsl(var(--primary) / .08); }
+.pet-chat-pin[aria-pressed="true"] { color:hsl(var(--primary)); background:hsl(var(--primary) / .08); }
+.pet-chat-pin[aria-pressed="true"] svg { transform:rotate(0); fill:hsl(var(--primary) / .18); }
 .pet-chat-pin:disabled { opacity:.45; }
 .pet-chat-composer { position:relative; }
 .pet-chat-picker { position:absolute; z-index:8; left:10px; right:10px; bottom:calc(100% + 6px); max-height:170px; overflow-y:auto; border:1px solid hsl(var(--border)); background:hsl(var(--card)); box-shadow:0 6px 18px #0002; padding:4px; }

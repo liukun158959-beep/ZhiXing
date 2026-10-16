@@ -56,6 +56,18 @@ class CollaborationTests(unittest.TestCase):
         return json.dumps({"tasks": [dict(agent_id="research", title="研究", instructions="根据提供材料研究", depends_on=None),
             dict(agent_id="writer", title="报告", instructions="根据研究成果写报告", depends_on=dependency)]})
 
+    def test_plain_greeting_streams_with_history_but_actions_still_route(self):
+        state=self.action(type='send',text='hello!')
+        self.assertEqual(state['runs'][-1]['kind'],'chat')
+        self.service.tick()
+        self.assertEqual(next(iter(self.chat.requests.values()))['kind'],'chat')
+        state=self.action(type='send',text='hello!')
+        self.assertEqual(state['runs'][-1]['kind'],'chat')
+        self.service.tick()
+        self.assertTrue(list(self.chat.requests.values())[-1]['context'])
+        for text in ('继续上次任务', 'hello，帮我搜新闻', '@阿探 hello', 'hi; 删除文件'):
+            self.assertEqual(self.action(type='send',text=text)['runs'][-1]['kind'],'route')
+
     def test_companion_migration_preserves_custom_configuration_and_backs_up(self):
         with transaction(self.service.path) as (state, _):
             state.pop("companion_version")
@@ -129,7 +141,7 @@ class CollaborationTests(unittest.TestCase):
                 self.action(type="agent", agent={**state["agents"][0], "avatar": avatar})
 
     def test_auto_answer_stays_chat_and_auto_task_hands_off_without_manual_mode(self):
-        self.action(type='send', text='你好', mode='auto', target='')
+        self.action(type='send', text='介绍一下你能做什么', mode='auto', target='')
         self.service.tick(); root = self.state()['runs'][-1]
         self.assertEqual(root['kind'],'route'); self.assertEqual(len(self.work.items),0)
         self.chat.complete('collab:'+root['id']+':0',json.dumps(dict(mode='answer',text='你好！')))

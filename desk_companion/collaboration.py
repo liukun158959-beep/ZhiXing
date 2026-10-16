@@ -314,6 +314,11 @@ class Collaboration:
             if selection['attachments']: additions.append(turn_block(selection['attachments']))
             if additions: history.append(dict(sender="user_selected_materials", text="\n\n".join(additions)))
             mode = action.get("mode", "auto")
+            # Literal greetings need no tool-routing envelope. Retain the full
+            # conversation context; selected material/skills/mentions still route.
+            if (mode == 'auto' and not selected and not additions
+                    and re.fullmatch(r'(?:hello|hi|hey|你好|您好|嗨|哈喽)[!！.。?？\s]*', text, re.IGNORECASE)):
+                mode = 'message'
             is_plan = mode == "task" and conversation["kind"] == "group" and target == conversation["coordinator"] and len(conversation["members"]) > 1
             reserved = sum((2 if r["kind"] in {"plan", "route"} else 1) for r in state["runs"] if r["state"] in ACTIVE)
             if reserved + (2 if is_plan or mode == "auto" else 1) > 12: raise ValueError("已有较多待处理工作，请先完成或停止部分任务")
