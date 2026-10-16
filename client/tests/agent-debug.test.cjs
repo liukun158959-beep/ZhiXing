@@ -37,6 +37,16 @@ test('version opens on the fifth consecutive click, resets after an interval, an
   assert.equal(chats, 1); assert.equal(videos, 1); act(() => renderer.unmount());
 });
 
+test('fixed top toolbar owns the sidebar toggle and reflects whether a panel is available',()=>{
+  const {TopToolbar}=load('top-toolbar');let count=0,view;
+  const props={title:'聊天',model:'test',connected:true,busy:false,dark:true,onTheme(){},onNewChat(){},onMonitor(){},onVideo(){},onDebug(){},onSidebarToggle:()=>count++};
+  act(()=>{view=create(React.createElement(TopToolbar,{...props,sidebarAvailable:false}));});
+  assert.equal(view.root.findByProps({'aria-label':'打开侧栏'}).props.disabled,true);
+  act(()=>view.update(React.createElement(TopToolbar,{...props,sidebarAvailable:true,sidebarOpen:true})));
+  const close=view.root.findByProps({'aria-label':'收起侧栏'});assert.equal(close.props['aria-expanded'],true);
+  act(()=>close.props.onClick());assert.equal(count,1);act(()=>view.unmount());
+});
+
 test('request comparison keeps full changed messages and tool/schema changes', () => {
   const { requestDiff } = load('agent-debug', { './api': {}, './Markdown': { Markdown: () => null } });
   const large = '完整上下文'.repeat(9000) + '最后一行';

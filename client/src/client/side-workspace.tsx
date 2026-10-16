@@ -17,9 +17,10 @@ export function previewSource(source: LocalSource) { window.dispatchEvent(new Cu
 export function previewQuote(quote: NoteCite) { window.dispatchEvent(new CustomEvent("desk-open-preview", { detail: { kind: "quote", quote } })); }
 export function openProject() { window.dispatchEvent(new CustomEvent("desk-open-preview", { detail: { kind: "project" } })); }
 export function openTerminal() { window.dispatchEvent(new CustomEvent("desk-open-preview", { detail: { kind: "terminal" } })); }
+export function togglePreview() { window.dispatchEvent(new CustomEvent("desk-toggle-preview")); }
 
 export function SideWorkspace(props: { children: ReactNode; info: BackendInfo | null; enabled: boolean; suspended?: boolean; debug?: boolean;
-  session?: string; onTerminalDraft?: (text: string) => void;
+  session?: string; onTerminalDraft?: (text: string) => void; onVisibilityChange?: (value: { open: boolean; available: boolean }) => void;
   attachments: LocalSource[]; onAttach: (sources: LocalSource[]) => void; onDetach: (id: string) => void; onLink: (url: string) => void; onRequest: () => void }) {
   const [tabs, setTabs] = useState<Tab[]>([]), [active, setActive] = useState(""), [closed, setClosed] = useState(false);
   const [projectDirty, setProjectDirty] = useState(false);
@@ -32,6 +33,12 @@ export function SideWorkspace(props: { children: ReactNode; info: BackendInfo | 
   const browserVisible = useRef(false), generation = useRef(new Map<string, number>()), timeout = useRef<ReturnType<typeof setTimeout>>();
   const propsRef = useRef(props); propsRef.current = props;
   const current = tabs.find(t => t.id === active), visible = props.enabled && tabs.length > 0 && !closed;
+  useEffect(() => { propsRef.current.onVisibilityChange?.({ open: visible, available: props.enabled && tabs.length > 0 }); }, [visible, tabs.length, props.enabled]);
+  useEffect(() => {
+    const toggle = () => { if(tabsRef.current.length) setClosed(value => !value); };
+    window.addEventListener('desk-toggle-preview', toggle);
+    return () => window.removeEventListener('desk-toggle-preview', toggle);
+  }, []);
   browserVisible.current = !!visible && current?.request.kind === "web" && !props.suspended;
   const update = (id: string, patch: Partial<Tab>) => setTabs(ts => ts.map(t => t.id === id ? { ...t, ...patch } : t));
   async function read(id: string, source: LocalSource, more = false) {
@@ -115,7 +122,7 @@ export function SideWorkspace(props: { children: ReactNode; info: BackendInfo | 
   const included = file && props.attachments.some(s => s.id === file.id);
   const markdown = current?.request.kind === "quote" || !!file && /\.(md|markdown)$/i.test(file.name);
   return <div ref={box} className={`side-workspace ${visible ? "has-preview" : ""}`} style={{ "--preview-width": `${width}px` } as React.CSSProperties} data-side-workspace>
-    <div className="workspace-conversation">{props.children}{props.enabled && tabs.length > 0 && closed && <button className="desk-menu-item workspace-reopen" onClick={() => setClosed(false)}>打开侧栏</button>}</div>
+    <div className="workspace-conversation">{props.children}</div>
     <><button hidden={!visible} style={!visible ? { display: "none" } : undefined} type="button" className="workspace-resize" aria-label="拖动或按左右方向键调整侧栏宽度" onKeyDown={event => { if (["ArrowLeft", "ArrowRight"].includes(event.key)) { event.preventDefault(); setWidth(w => Math.min(680, Math.max(280, w + (event.key === "ArrowLeft" ? 20 : -20)))); } }} onPointerDown={event => {
       event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
       const handle = event.currentTarget, move = (e: PointerEvent) => { const rect = box.current!.getBoundingClientRect(); setWidth(Math.min(Math.max(280, rect.right - e.clientX), Math.min(680, Math.max(280, rect.width - 386)))); };

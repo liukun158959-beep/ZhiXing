@@ -171,7 +171,7 @@ function onPointerUp(): void {
   if (!result.moved) {
     if (!petAvailable) return;
     renderMenu(false);
-    void rust("set_pet_chat_visible", { visible: true }).catch(err=>showError(String(err)));
+    void rust("toggle_pet_chat").catch(err=>showError(String(err)));
     void playMotion("Tap").catch((err: unknown) => showError(String(err)));
     return;
   }

@@ -4,7 +4,7 @@ const fs = require('node:fs'), path = require('node:path'), Module = require('no
 const ts = require('typescript'), React = require('react');
 const { act, create } = require('react-test-renderer');
 function load(name, mocks={}) {
-  const filename=path.resolve(__dirname,'../src/client',name+'.tsx');
+  const base=path.resolve(__dirname,'../src/client',name);const filename=fs.existsSync(base+'.tsx')?base+'.tsx':base+'.ts';
   const mod=new Module(filename,module);mod.filename=filename;mod.paths=Module._nodeModulePaths(path.dirname(filename));
   const original=mod.require.bind(mod);mod.require=id=>mocks[id]||original(id);
   mod._compile(ts.transpileModule(fs.readFileSync(filename,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2022}}).outputText,filename);return mod.exports;
@@ -37,6 +37,7 @@ test('floating chat shares real conversation, scopes drafts, handles IME and clo
   let callback;const invoked=[],calls=[];
   const state={revision:1,selected:'a',agents:[{id:'tebb',name:'小光'}],conversations:[{id:'a',title:'会话A'},{id:'b',title:'会话B'}],messages:[],runs:[],models:[]};
   const {PetChat}=load('pet-chat',{
+    './composer-picker':load('composer-picker'),
     './api':{rpc:async(_i,method,args)=>{calls.push({method,args});return method==='load_task_progress'?{enabled:true}: {state};}},
     './chat-prototype-state':{runActive:r=>r.state==='running',RUN_LABELS:{running:'执行中'}},
     './stream-text':{StreamText:({text})=>React.createElement('p',null,text)},'./companion-ui':{AppIcon:()=>null},
@@ -56,4 +57,38 @@ test('floating chat shares real conversation, scopes drafts, handles IME and clo
   await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
   const sent=calls.find(c=>c.method==='collaboration_action').args.action;assert.equal(sent.conversation,'a');assert.equal(sent.mode,'auto');assert(sent.request_id);
   assert(!calls.some(c=>c.args?.action?.type==='cancel'));assert.equal(input().props.value,'');await act(async()=>view.unmount());
+});
+
+test('floating @ and / select authorized members and skills, and pin changes reflect actual native results',async()=>{
+  const bus=new EventTarget();bus.setInterval=()=>1;bus.clearInterval=()=>{};global.window=bus;
+  let failPin=false;const calls=[];
+  const state={revision:1,selected:'a',agents:[{id:'tebb',name:'小光'},{id:'coder',name:'码可'}],
+    conversations:[{id:'a',title:'会话A',members:['tebb']}],messages:[],runs:[],models:[],skills:[{id:'github-summary',description:'整理项目近况'}]};
+  const {PetChat}=load('pet-chat',{
+    './composer-picker':load('composer-picker'),
+    './api':{rpc:async(_i,method,args)=>{calls.push({method,args});return method==='load_task_progress'?{enabled:true}:{state};}},
+    './chat-prototype-state':{runActive:()=>false,RUN_LABELS:{}},'./stream-text':{StreamText:()=>null},'./companion-ui':{AppIcon:()=>null},
+    '@tauri-apps/api/core':{isTauri:()=>true,invoke:async(name,args)=>{
+      if(name==='get_pet_chat_state')return {visible:true,pinned:false};
+      if(name==='set_pet_chat_pinned'){if(failPin)throw Error('pin failed');return args.pinned;}
+    }},'@tauri-apps/api/event':{listen:async()=>()=>{}}
+  });let view;await act(async()=>{view=create(React.createElement(PetChat,{backend:{port:1,token:'test'}}));});
+  const input=()=>view.root.findByProps({'aria-label':'浮动聊天消息'});
+  const key=value=>input().props.onKeyDown({key:value,nativeEvent:{},preventDefault(){}});
+  await act(async()=>input().props.onChange({target:{value:'@',selectionStart:1}}));
+  assert.equal(view.root.findAllByProps({role:'option'}).length,1);
+  await act(async()=>key('Enter'));assert.equal(input().props.value,'@小光 ');assert.equal(calls.filter(c=>c.method==='collaboration_action').length,0);
+  await act(async()=>input().props.onChange({target:{value:'@小光 /项目',selectionStart:7}}));
+  assert(text(view.root.findByProps({role:'listbox'})).includes('github-summary'));
+  await act(async()=>key('Enter'));assert.equal(input().props.value,'@小光 ');
+  assert.equal(view.root.findByProps({'aria-label':'移除技能 github-summary'}).type,'button');
+  await act(async()=>input().props.onChange({target:{value:'@小光 整理项目近况',selectionStart:11}}));
+  await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  assert.deepEqual(calls.find(c=>c.method==='collaboration_action').args.action.skills,['github-summary']);
+  await act(async()=>view.root.findByProps({'aria-label':'置顶对话框'}).props.onClick());
+  assert.equal(view.root.findByProps({'aria-label':'取消置顶'}).props['aria-pressed'],true);
+  failPin=true;await act(async()=>view.root.findByProps({'aria-label':'取消置顶'}).props.onClick());
+  assert.equal(view.root.findByProps({'aria-label':'取消置顶'}).props['aria-pressed'],true);
+  assert(text(view.root.findByProps({role:'alert'})).includes('pin failed'));
+  await act(async()=>view.unmount());
 });

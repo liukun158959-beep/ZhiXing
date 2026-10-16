@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::{Emitter, Manager, PhysicalPosition};
 mod video_login;
 mod pet_chat;
-use pet_chat::set_pet_chat_visible;
+use pet_chat::{set_pet_chat_visible, toggle_pet_chat, get_pet_chat_state, set_pet_chat_pinned};
 mod side_browser;
 use side_browser::{open_side_browser, side_browser_layout, side_browser_action};
 use video_login::{open_video_login, capture_video_login, clear_video_login_window};
@@ -349,6 +349,9 @@ pub fn run() {
             backend_info,
             set_pet_visible,
             set_pet_chat_visible,
+            toggle_pet_chat,
+            get_pet_chat_state,
+            set_pet_chat_pinned,
             set_drag_lock,
             nudge_pet,
             show_main,

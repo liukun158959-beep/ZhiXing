@@ -492,3 +492,24 @@
 .pet-chat-menu button { display:block; width:100%; text-align:left; font-size:12px; padding:5px; }
 .pet-chat-menu small { color:hsl(var(--muted-foreground)); font-size:10px; }
 @media(prefers-reduced-motion:reduce) { .tebb-stream-new,.tebb-stream-cursor { animation:none; }.tebb-stream-cursor { box-shadow:none; } }
+
+/* Plain toolbar glyphs: no filled tile, including hover and selected states. */
+.cp-context-actions .cp-button,
+.cp-context-actions .cp-button:hover,
+.cp-context-actions .cp-button[aria-expanded="true"] { background:transparent !important; border-color:transparent; box-shadow:none; }
+.cp-context-actions .cp-button:hover { color:hsl(var(--primary)); }
+.pet-chat-pin svg { display:block; width:16px; height:16px; margin:auto; }
+.pet-chat-pin[aria-pressed="true"] { color:hsl(var(--primary)); }
+.pet-chat-pin:disabled { opacity:.45; }
+.pet-chat-composer { position:relative; }
+.pet-chat-picker { position:absolute; z-index:8; left:10px; right:10px; bottom:calc(100% + 6px); max-height:170px; overflow-y:auto; border:1px solid hsl(var(--border)); background:hsl(var(--card)); box-shadow:0 6px 18px #0002; padding:4px; }
+.pet-chat-picker button { display:flex; flex-direction:column; width:100%; text-align:left; padding:7px 8px; background:transparent; color:hsl(var(--foreground)); }
+.pet-chat-picker button[aria-selected="true"] { background:hsl(var(--primary) / .1); }
+.pet-chat-picker strong { font-size:12px; }
+.pet-chat-picker small, .pet-chat-picker p { font-size:10px; color:hsl(var(--muted-foreground)); overflow-wrap:anywhere; }
+.pet-chat-picker p { padding:8px; }
+.pet-chat-skills { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; max-height:65px; overflow-y:auto; }
+.pet-chat-skills button { padding:2px 5px; font-size:10px; color:hsl(var(--foreground)); background:transparent; border:1px solid hsl(var(--border)); overflow-wrap:anywhere; }
+.pet-chat-compose-actions { display:flex; gap:6px; }
+.pet-chat-compose-actions button { width:20px; height:22px; padding:0; font-size:13px; color:hsl(var(--muted-foreground)); background:transparent; }
+.pet-chat-compose-actions button:hover { color:hsl(var(--primary)); }

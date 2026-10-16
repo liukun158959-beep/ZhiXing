@@ -34,7 +34,7 @@ import { PetSettings } from "./pet-settings";
 import { RailButton, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
 import { TopToolbar } from "./top-toolbar";
 import { LocalSourcesDialog, type LocalSource } from "./local-sources";
-import { SideWorkspace, previewSource, openTerminal, openProject } from "./side-workspace";
+import { SideWorkspace, previewSource, openTerminal, openProject, togglePreview } from "./side-workspace";
 import { LoadingText } from "./loading-text";
 import { AutomationPane } from "./automation";
 import { VideoPane, WikiConnectionSettings } from "./video";
@@ -101,6 +101,7 @@ export function App() {
   const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [dark, setDark] = useState(() => { try { return localStorage.getItem("tebb.theme") !== "light"; } catch { return true; } });
+  const [sidebarState, setSidebarState] = useState({ open: false, available: false });
   const [composeRequest, setComposeRequest] = useState<{ id: number; text: string }>();
   const [developerMode, setDeveloperMode] = useState(readDeveloperMode);
   const [agentDebugOpen, setAgentDebugOpen] = useState(false);
@@ -2129,7 +2130,7 @@ export function App() {
           model={modelItems.find(m => m.id === activeModelId)?.model ? `默认：${modelItems.find(m => m.id === activeModelId)?.model}` : ""} connected={!!info || !!debugKind} busy={busy || noteBusy} dark={dark}
           onTheme={() => setDark(!dark)} onNewChat={() => { setPane("collaboration"); window.dispatchEvent(new CustomEvent("tebb-new-chat")); }}
           onMonitor={() => setPane("monitor")} onVideo={() => setPane("video")} onDebug={() => { changeDeveloperMode(true); setAgentDebugOpen(true); }}
-          onFile={() => setLocalDialog("file")} onFolder={openProject} onTerminal={openTerminal} />
+          onFile={() => setLocalDialog("file")} onFolder={openProject} onTerminal={openTerminal} sidebarOpen={sidebarState.open} sidebarAvailable={sidebarState.available} onSidebarToggle={togglePreview} />
         {localDialog && <LocalSourcesDialog info={info} initialKind={localDialog} debug={!!debugPane()} onClose={() => { setLocalDialog(null); setLocalDialogMinimized(false); }} onPreview={previewSource} onMinimizedChange={setLocalDialogMinimized}
           onAttach={sources => { setPickedAttachments(sources); setLocalDialog(null); setPane("collaboration"); setNoteSessionId(null); }}
           onIndex={source => knowledgeCall("add_knowledge", { doc_id: `local:${source.id}`, label: source.name })} />}
@@ -2137,7 +2138,7 @@ export function App() {
         {!coreChat && <aside className="tebb-section-nav" aria-label="页面导航"><strong>{pane === 'settings' ? '偏好与连接' : pane === 'chat' && chatFace === 'knowledge' ? '知识库' : pane === 'feishu' ? '飞书空间' : pane === 'video' ? '视频资料' : '任务与工作'}</strong>
           {(pane === 'settings') ? <><button onClick={() => setShowGuide(true)}>初始化引导</button><button onClick={releaseIntro.show}>版本介绍</button><button onClick={openProject}>工作目录与权限</button>{developerMode && <button onClick={() => setAgentDebugOpen(true)}>调用调试</button>}</> : pane === 'chat' && chatFace === 'knowledge' ? <><button onClick={() => void openKnowledge()}>刷新知识库</button><button onClick={() => setLocalDialog('file')}>添加本地资料</button><button onClick={openProject}>项目文件</button>{noteSessions.map(note => <button key={note.id} onClick={() => openNoteSession(note.id)}>{note.title || '笔记'}</button>)}</> : <><button onClick={() => void openBoard()}>今日看板</button><button onClick={() => setPane('monitor')}>执行任务</button><button onClick={() => setPane('automation')}>定时任务</button><button onClick={() => setPane('video')}>视频读取</button><button onClick={openProject}>项目文件</button></>}
           <p>文件、引用与任务可以返回伙伴聊天继续处理。</p></aside>}
-        <SideWorkspace info={info} session={noteSessionId || thread?.sessionId || ""} onTerminalDraft={text => { if (noteSessionId && pane === "chat" && chatFace === "thread") { setDraft(previous => `${previous}${previous ? "\n\n" : ""}${text}`); setComposerNotice("内容已加入笔记提问草稿，尚未发送。"); } else { setComposeRequest({ id: Date.now(), text }); setPane("collaboration"); } }} enabled={true} debug={!!debugKind}
+        <SideWorkspace onVisibilityChange={setSidebarState} info={info} session={noteSessionId || thread?.sessionId || ""} onTerminalDraft={text => { if (noteSessionId && pane === "chat" && chatFace === "thread") { setDraft(previous => `${previous}${previous ? "\n\n" : ""}${text}`); setComposerNotice("内容已加入笔记提问草稿，尚未发送。"); } else { setComposeRequest({ id: Date.now(), text }); setPane("collaboration"); } }} enabled={true} debug={!!debugKind}
           suspended={agentDebugOpen || showGuide || !!cropSrc || releaseIntro.open || (!!localDialog && !localDialogMinimized)}
           attachments={pickedAttachments}
           onAttach={sources => { setPickedAttachments(sources); setPane("collaboration"); setNoteSessionId(null); }}

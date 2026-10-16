@@ -87,15 +87,28 @@ test('citations from different answers do not share stale source tabs', () => {
   assert.equal(quoteIdentity(cite), quoteIdentity({ ...cite }));
 });
 
+test('sidebar reports toolbar state and never overlays the conversation with a reopen button', async()=>{
+  environment();const states=[];
+  const {SideWorkspace,openTerminal,togglePreview}=load('side-workspace',mocks());let view;
+  await act(async()=>{view=create(React.createElement(SideWorkspace,{...workspaceProps,onVisibilityChange:value=>states.push(value)}));});
+  assert.deepEqual(states.at(-1),{open:false,available:false});
+  await act(async()=>openTerminal());assert.deepEqual(states.at(-1),{open:true,available:true});
+  await act(async()=>togglePreview());assert.deepEqual(states.at(-1),{open:false,available:true});
+  assert.equal(view.root.findAllByProps({className:'desk-menu-item workspace-reopen'}).length,0);
+  assert.equal(view.root.findByProps({'aria-label':'侧边工作区'}).props.hidden,true);
+  await act(async()=>togglePreview());assert.equal(view.root.findByProps({'aria-label':'侧边工作区'}).props.hidden,false);
+  await act(async()=>view.unmount());
+});
+
 test('terminal opens in the shared sidebar, preserves chat draft, and can be reopened', async () => {
   environment(); let requests = 0;
-  const { SideWorkspace, openTerminal } = load('side-workspace', mocks());
+  const { SideWorkspace, openTerminal, togglePreview } = load('side-workspace', mocks());
   let view; await act(async () => { view = create(React.createElement(SideWorkspace, { ...workspaceProps, onRequest: () => requests++ })); });
   const draft = view.root.findByType('textarea');
   await act(async () => openTerminal()); assert.equal(requests, 1); assert.equal(view.root.findAllByProps({ 'data-terminal': '' }).length, 1);
   await act(async () => openTerminal()); assert.equal(view.root.findAllByProps({ 'data-terminal': '' }).length, 1);
   await act(async () => button(view, '收起').props.onClick()); assert.equal(view.root.findByType('textarea'), draft);
-  await act(async () => button(view, '打开侧栏').props.onClick()); assert.equal(view.root.findAllByProps({ 'data-terminal': '' }).length, 1);
+  await act(async () => togglePreview()); assert.equal(view.root.findAllByProps({ 'data-terminal': '' }).length, 1);
   await act(async () => view.unmount());
 });
 
