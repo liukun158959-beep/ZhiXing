@@ -75,7 +75,7 @@ def seed():
         dict(id="research", name="研究员", role="核实一手资料，区分来源事实与推断，给出出处和限制", mark="R", tone="sage", model="", tools=["联网搜索","网页读取"], memory=""),
         dict(id="writer", name="写作者", role="根据收到的资料写成清晰报告，不编造来源或补齐未经核实的事实", mark="W", tone="lavender", model="", tools=[], memory=""),
     ]
-    state = dict(version=1, next=20, selected="group-research", agents=agents, messages=[], runs=[], requests=[], notice="", conversations=[
+    state = dict(version=1, next=20, selected="group-research", projects=[], agents=agents, messages=[], runs=[], requests=[], notice="", conversations=[
         dict(id="group-research", title="AI 研究室", kind="group", members=[a["id"] for a in agents], coordinator="tebb", goal="研究与写作协作，以实际来源和执行回执交付成果。"),
         *[dict(id="dm-"+a["id"], title=a["name"], kind="dm", members=[a["id"]], coordinator=a["id"], goal="独立会话与 Agent 配置") for a in agents],
     ])
@@ -107,6 +107,7 @@ def transaction(path):
         db.execute("BEGIN IMMEDIATE")
         raw = db.execute("SELECT data FROM workspace WHERE id=1").fetchone()[0]
         state = json.loads(raw)
+        state.setdefault("projects", [])
         yield state, db
         value = json.dumps(state, ensure_ascii=False)
         if value != raw:
@@ -276,15 +277,42 @@ class Collaboration:
     def _apply(self, state, action):
         kind = action.get("type")
         conversation = next((c for c in state["conversations"] if c["id"] == action.get("conversation")), None)
-        if kind == "select":
+        def project_id(default=""):
+            value = action.get("project_id", default)
+            if not isinstance(value, str) or (value and not any(p["id"] == value for p in state["projects"])):
+                raise ValueError("项目不存在，请刷新后重新选择")
+            return value
+
+        if kind in {"create_project", "rename_project", "delete_project"}:
+            project = None if kind == "create_project" else next((p for p in state["projects"] if p["id"] == action.get("id")), None)
+            if kind != "create_project" and not project: raise ValueError("项目不存在")
+            if kind == "delete_project":
+                state["projects"].remove(project)
+                for row in state["conversations"]:
+                    if row.get("project_id") == project["id"]: row.pop("project_id", None)
+            else:
+                name = action.get("name")
+                if not isinstance(name, str) or not 1 <= len(name.strip()) <= 40: raise ValueError("项目名称须为1至40字")
+                name = name.strip()
+                if any(p["id"] != (project or {}).get("id") and p["name"].casefold() == name.casefold() for p in state["projects"]):
+                    raise ValueError("项目名称已存在")
+                if project: project["name"] = name
+                else: state["projects"].append(dict(id=self._id(), name=name))
+        elif kind == "move_conversation":
+            if "project_id" not in action: raise ValueError("请选择目标项目或未归类")
+            row = next((c for c in state["conversations"] if c["id"] == action.get("id")), None)
+            if not row: raise ValueError("会话不存在")
+            row["project_id"] = project_id()
+        elif kind == "select":
             if not conversation: raise ValueError("会话不存在")
             state["selected"] = conversation["id"]
         elif kind == "open_dm":
             agent = next((a for a in state["agents"] if a["id"] == action.get("agent_id")), None)
             if not agent: raise ValueError("伙伴不存在")
-            dm = next((c for c in state["conversations"] if c["kind"] == "dm" and c["coordinator"] == agent["id"]), None)
+            pid = project_id((conversation or {}).get("project_id", ""))
+            dm = next((c for c in state["conversations"] if c["kind"] == "dm" and c["coordinator"] == agent["id"] and c.get("project_id", "") == pid), None)
             if not dm:
-                dm = dict(id=self._id(), title=agent["name"], kind="dm", members=[agent["id"]], coordinator=agent["id"], goal="")
+                dm = dict(id=self._id(), title=agent["name"], kind="dm", members=[agent["id"]], coordinator=agent["id"], goal="", project_id=pid)
                 state["conversations"].append(dm)
             state["selected"] = dm["id"]
         elif kind in {"delete_conversation", "rename_conversation"}:
@@ -388,8 +416,9 @@ class Collaboration:
                     item["events"].append("已请求停止，不再派发后续任务")
                     if item.get("task"): self._manager(item).cancel(item["task"])
         elif kind == "new_chat":
-            agent = next(a for a in state['agents'] if a['id'] == action.get('agent_id', 'tebb'))
-            row = dict(id=self._id(), title="新对话", kind="dm", members=[agent['id']], coordinator=agent['id'], goal="")
+            agent = next((a for a in state['agents'] if a['id'] == action.get('agent_id', 'tebb')), None)
+            if not agent: raise ValueError("伙伴不存在")
+            row = dict(id=self._id(), title="新对话", kind="dm", members=[agent['id']], coordinator=agent['id'], goal="", project_id=project_id((conversation or {}).get("project_id", "")))
             state['conversations'].append(row); state['selected'] = row['id']
         elif kind == "add_coder":
             if not any(a['id'] == 'coder' for a in state['agents']):
@@ -413,7 +442,8 @@ class Collaboration:
             existing = next((c for c in state['conversations'] if c['id']==action.get('id') and c['kind']=='group'),None)
             if action.get('id') and not existing: raise ValueError('协作群不存在')
             if existing and any(r['conversation']==existing['id'] and r['state'] in ACTIVE for r in state['runs']): raise ValueError('请等待或停止本群任务后调整成员')
-            row = dict(id=existing['id'] if existing else self._id(), title=title.strip(), kind="group", members=members, coordinator="tebb" if "tebb" in members else members[0], goal=goal)
+            row = dict(id=existing['id'] if existing else self._id(), title=title.strip(), kind="group", members=members, coordinator="tebb" if "tebb" in members else members[0], goal=goal,
+                project_id=existing.get("project_id", "") if existing else project_id((conversation or {}).get("project_id", "")))
             if existing: state["conversations"][state["conversations"].index(existing)] = row
             else: state["conversations"].append(row)
             state["selected"] = row["id"]

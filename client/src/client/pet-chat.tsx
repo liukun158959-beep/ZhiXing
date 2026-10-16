@@ -17,7 +17,7 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
   const [model, setModel] = useState(''), [pollError, setPollError] = useState('');
   const [pinned,setPinned]=useState(false),[pinBusy,setPinBusy]=useState(false);
   const [creating,setCreating]=useState(false);
-  const newRequest=useRef<{id:string;agent:string} | null>(null);
+  const newRequest=useRef<{id:string;agent:string;conversation:string} | null>(null);
   const [cursor,setCursor]=useState(0),[pickerIndex,setPickerIndex]=useState(0),[dismissed,setDismissed]=useState(false);
   const [skillMap,setSkillMap]=useState<Record<string,string[]>>({});
   const input=useRef<HTMLTextAreaElement>(null);
@@ -73,9 +73,9 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
   async function newChat(){
     if(!info || creating || busy)return;
     setCreating(true);setError('');const agent=current?.coordinator || 'tebb';
-    if(!newRequest.current || newRequest.current.agent!==agent)newRequest.current={id:crypto.randomUUID(),agent};
+    if(!newRequest.current || newRequest.current.agent!==agent || newRequest.current.conversation!==cid)newRequest.current={id:crypto.randomUUID(),agent,conversation:cid};
     try {
-      const result=await rpc<{state:DemoState}>(info,'collaboration_action',{action:{type:'new_chat',agent_id:agent,request_id:newRequest.current.id}});
+      const result=await rpc<{state:DemoState}>(info,'collaboration_action',{action:{type:'new_chat',conversation:cid,agent_id:agent,request_id:newRequest.current.id}});
       if(!alive.current)return;
       accept(result.state);setConversation(result.state.selected);setModel('');setDismissed(true);following.current=true;newRequest.current=null;
     }catch(e){if(alive.current)setError(String(e)+'；重试将沿用新对话编号。');}

@@ -359,6 +359,79 @@ test('restoring legacy companion names keeps custom names, model, permissions an
   assert.equal(restoreDemo(JSON.stringify(next)).agents[2].name, '写作者');
 });
 
+test('projects restore old history and keep conversation membership across reloads', () => {
+  const legacy = initialDemo(); delete legacy.projects;
+  const migrated = restoreDemo(JSON.stringify(legacy));
+  assert.deepEqual(migrated.projects, []); assert.deepEqual(migrated.messages, legacy.messages);
+  let state = reduce(migrated, {type:'create_project',name:'Atlas'}); const pid=state.projects[0].id;
+  state = reduce(state, {type:'move_conversation',id:'group-research',project_id:pid});
+  state = reduce(state, {type:'rename_project',id:pid,name:'Atlas 开发'});
+  const restored = restoreDemo(JSON.stringify(state));
+  assert.equal(restored.projects[0].name,'Atlas 开发');
+  assert.equal(restored.conversations.find(c=>c.id==='group-research').project_id,pid);
+  assert.deepEqual(restored.messages,legacy.messages); assert.deepEqual(restored.runs,legacy.runs);
+});
+
+test('sidebar creates, renames and deletes projects, and moving live conversations preserves drafts and work', async () => {
+  const {saved}=environment();const {ChatPrototype}=load('chat-prototype');let view;
+  await act(async()=>{view=create(React.createElement(ChatPrototype));});
+  const state=()=>JSON.parse(saved.get(DEMO_STORAGE));
+  const submitModal=async()=>act(async()=>view.root.findByProps({role:'dialog'}).findByType('form').props.onSubmit({preventDefault(){}}));
+  const initial=state();
+  await act(async()=>view.root.findByProps({'aria-label':'原型消息'}).props.onChange({target:{value:'保留我的草稿'}}));
+  await act(async()=>button(view,'新建项目').props.onClick());
+  await act(async()=>view.root.findByProps({'aria-label':'项目名称'}).props.onChange({target:{value:'Atlas'}}));
+  await submitModal();const pid=state().projects[0].id;
+  assert(view.root.findByProps({'data-chat-project':pid}));
+  await act(async()=>button(view,'AI 研究室的会话操作').props.onClick({preventDefault(){},currentTarget:{getBoundingClientRect:()=>({right:100,top:100})},clientX:100,clientY:100}));
+  await act(async()=>button(view,'移动到项目').props.onClick());
+  await act(async()=>view.root.findByProps({'aria-label':'目标项目'}).props.onChange({target:{value:pid}}));
+  await submitModal();
+  assert.equal(state().conversations.find(c=>c.id==='group-research').project_id,pid);
+  assert.equal(view.root.findByProps({'aria-label':'原型消息'}).props.value,'保留我的草稿');
+  assert.deepEqual(state().runs,initial.runs);assert.deepEqual(state().messages,initial.messages);
+  await act(async()=>button(view,'Atlas的项目设置').props.onClick());
+  await act(async()=>view.root.findByProps({'aria-label':'项目名称'}).props.onChange({target:{value:'Atlas 开发'}}));
+  await submitModal();assert.equal(state().projects[0].name,'Atlas 开发');
+  const toggle=view.root.findByProps({'aria-controls':`cp-project-${pid}`});
+  await act(async()=>toggle.props.onClick());assert.equal(view.root.findByProps({id:`cp-project-${pid}`}).props.hidden,true);
+  await act(async()=>toggle.props.onClick());assert.equal(view.root.findByProps({id:`cp-project-${pid}`}).props.hidden,false);
+  await act(async()=>button(view,'Atlas 开发的项目设置').props.onClick());
+  await act(async()=>button(view,'删除项目').props.onClick());
+  await act(async()=>button(view,'确认删除项目').props.onClick());
+  assert.deepEqual(state().projects,[]);assert(!state().conversations.find(c=>c.id==='group-research').project_id);
+  assert.deepEqual(state().runs,initial.runs);assert.deepEqual(state().messages,initial.messages);
+  assert.equal(view.root.findByProps({'aria-label':'原型消息'}).props.value,'保留我的草稿');
+  await act(async()=>view.unmount());
+});
+
+test('project new-chat and group creation inherit the folder, and ungrouped entry leaves it', async () => {
+  const {saved}=environment();let state=reduce(initialDemo(),{type:'create_project',name:'研究'});
+  saved.set(DEMO_STORAGE,JSON.stringify(state));const pid=state.projects[0].id;
+  const {ChatPrototype}=load('chat-prototype');let view;await act(async()=>{view=create(React.createElement(ChatPrototype));});
+  await act(async()=>button(view,'在研究中新建对话').props.onClick());
+  state=JSON.parse(saved.get(DEMO_STORAGE));assert.equal(state.conversations.find(c=>c.id===state.selected).project_id,pid);
+  await act(async()=>button(view,'新建协作群').props.onClick());
+  const dialog=view.root.findByProps({role:'dialog'});assert.equal(dialog.findByProps({'aria-label':'协作群所属项目'}).props.value,pid);
+  await act(async()=>dialog.findAllByType('input').find(n=>n.props.maxLength===40).props.onChange({target:{value:'资料研究'}}));
+  await act(async()=>dialog.findByType('form').props.onSubmit({preventDefault(){}}));
+  state=JSON.parse(saved.get(DEMO_STORAGE));assert.equal(state.conversations.find(c=>c.id===state.selected).project_id,pid);
+  await act(async()=>button(view,'新建未归类对话').props.onClick());
+  state=JSON.parse(saved.get(DEMO_STORAGE));assert.equal(state.conversations.find(c=>c.id===state.selected).project_id,'');
+  await act(async()=>view.unmount());
+});
+
+test('failed project saves keep the name and dialog available for retry', async () => {
+  environment();const {ChatPrototype}=load('chat-prototype');const actions=[];let view;
+  await act(async()=>{view=create(React.createElement(ChatPrototype,{live:{state:initialDemo(),busy:false,error:'',act:async action=>{actions.push(action);return false;}}}));});
+  await act(async()=>button(view,'新建项目').props.onClick());
+  await act(async()=>view.root.findByProps({'aria-label':'项目名称'}).props.onChange({target:{value:'未保存的项目'}}));
+  await act(async()=>view.root.findByProps({role:'dialog'}).findByType('form').props.onSubmit({preventDefault(){}}));
+  assert.equal(actions[0].type,'create_project');assert.equal(actions[0].name,'未保存的项目');
+  assert.equal(view.root.findByProps({'aria-label':'项目名称'}).props.value,'未保存的项目');
+  await act(async()=>view.unmount());
+});
+
 
 test('normal App starts in core chat and keeps its draft mounted across settings and source previews', async () => {
   environment(); global.window.addEventListener = () => {}; global.window.removeEventListener = () => {};

@@ -1,6 +1,7 @@
 // Local interaction model only. No model, tool, credential, or backend imports.
 export type DemoAgent = { id: string; name: string; role: string; mark: string; tone: string; model: string; tools: string[]; memory: string; avatar?: string; personality?: string };
-export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string; legacy?: boolean; summary?: string };
+export type DemoProject = { id: string; name: string };
+export type DemoConversation = { id: string; title: string; kind: "dm" | "group"; members: string[]; coordinator: string; goal: string; legacy?: boolean; summary?: string; project_id?: string };
 export type DemoMessage = { id: string; conversation: string; sender: string; text: string; run?: string; kind?: "result" | "notice" };
 export type DemoRun = { id: string; conversation: string; agent: string; title: string; state: "running" | "waiting" | "succeeded" | "cancelled" | "pending" | "queued" | "cancelling" | "failed" | "timed_out" | "interrupted";
   step: number; dependency?: string; dependencies?: string[]; delivery_state?: "running" | "succeeded" | "failed"; delivery_check?: { ok: boolean; missing?: string[]; missing_sources?: string[] }; updates: string[]; applied: number; events: string[]; artifact?: string;
@@ -8,20 +9,24 @@ export type DemoRun = { id: string; conversation: string; agent: string; title: 
   changes?: { path: string; diff: string }[]; checks?: { command: string; state: string; exit_code: number | null; output: string; stale?: boolean; diff_limited?: boolean }[];
   citation_check?: { ok: boolean; pages_read: number; matched: { url: string; level: string; truncated: boolean }[]; unverified: string[] } };
 export type DemoRequest = { id: string; conversation: string; run: string; state: "pending" | "approved" | "rejected" };
-export type DemoState = { version: 1; next: number; selected: string; agents: DemoAgent[]; conversations: DemoConversation[]; messages: DemoMessage[];
+export type DemoState = { version: 1; next: number; selected: string; projects?: DemoProject[]; agents: DemoAgent[]; conversations: DemoConversation[]; messages: DemoMessage[];
   runs: DemoRun[]; requests: DemoRequest[]; notice: string; companionVersion?: number; revision?: number; active_model?: string; workspace?: { primary: string }; skills?: { id: string; description: string }[]; models?: { id: string; model: string }[] };
 export type DemoAction =
   | { type: "select"; id: string }
   | { type: "send"; text: string; target: string; mode: "message" | "task" | "auto"; run?: string; skills?: string[]; attachments?: string[]; model_id?: string; sampling?: { reasoning_effort: string; temperature: number; top_p: number } }
-  | { type: "open_dm"; agent_id: string }
+  | { type: "create_project"; name: string }
+  | { type: "rename_project"; id: string; name: string }
+  | { type: "delete_project"; id: string }
+  | { type: "move_conversation"; id: string; project_id: string }
+  | { type: "open_dm"; agent_id: string; project_id?: string }
   | { type: "delete_conversation"; id: string }
   | { type: "rename_conversation"; id: string; title: string }
-  | { type: "new_chat"; agent_id?: string }
+  | { type: "new_chat"; agent_id?: string; project_id?: string }
   | { type: "add_coder" }
   | { type: "compress" }
   | { type: "advance" }
   | { type: "cancel"; id: string }
-  | { type: "group"; id?: string; title: string; members: string[]; goal: string }
+  | { type: "group"; id?: string; title: string; members: string[]; goal: string; project_id?: string }
   | { type: "agent"; agent: DemoAgent }
   | { type: "request"; run: string }
   | { type: "decide"; id: string; approved: boolean }
@@ -34,7 +39,7 @@ export const STEP_LABELS = ["整理任务与资料范围", "核对资料并提�
 
 export function initialDemo(): DemoState {
   return {
-    version: 1, companionVersion: 1, next: 20, selected: "group-research", notice: "", requests: [],
+    version: 1, companionVersion: 1, next: 20, selected: "group-research", projects: [], notice: "", requests: [],
     agents: [
       { id: "tebb", name: "小缇", avatar: "spark", personality: "温暖爽快，擅长把想法变成计划。", role: "协调目标、拆分工作、汇总成果", mark: "t", tone: "gold", model: "通用模型 · 演示", tools: ["文件"], memory: "演示偏好：先交付结论，再展开依据。" },
       { id: "research", name: "阿探", avatar: "fox", personality: "好奇又敏锐，追问为什么，也坦率承认未知。", role: "查找一手来源，比较技术方案", mark: "R", tone: "sage", model: "研究模型 · 演示", tools: ["联网搜索", "文件"], memory: "演示偏好：比较项目时列出许可证和部署门槛。" },
@@ -72,9 +77,25 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
     state.messages.push({ id: id(), conversation, sender, text, run, kind });
   };
   const conversation = state.conversations.find(item => item.id === state.selected)!;
-  if (action.type === "new_chat") {
+  const projects = state.projects ??= [];
+  const projectFor = (given: string | undefined) => given ?? conversation.project_id ?? '';
+  if (action.type === "create_project" || action.type === "rename_project") {
+    const name = action.name.trim();
+    if (!name || name.length > 40 || projects.some(p => p.name.toLowerCase() === name.toLowerCase() && (action.type !== 'rename_project' || p.id !== action.id))) { state.notice = '项目名称须为1至40字，且不能重复。'; return state; }
+    if (action.type === 'create_project') projects.push({ id: id(), name });
+    else { const p = projects.find(p => p.id === action.id); if (p) p.name = name; }
+  } else if (action.type === 'delete_project') {
+    state.projects = projects.filter(p => p.id !== action.id);
+    state.conversations.forEach(c => { if (c.project_id === action.id) delete c.project_id; });
+  } else if (action.type === 'move_conversation') {
+    const c = state.conversations.find(c => c.id === action.id);
+    if (!c || (action.project_id && !projects.some(p => p.id === action.project_id))) { state.notice = '项目或会话不存在。'; return state; }
+    c.project_id = action.project_id;
+  } else if (action.type === "new_chat") {
     const agent = state.agents.find(a => a.id === (action.agent_id || 'tebb'))!;
-    const dm = { id: id(), title: '新对话', kind: 'dm' as const, members: [agent.id], coordinator: agent.id, goal: '' };
+    const pid = projectFor(action.project_id);
+    if (pid && !projects.some(p => p.id === pid)) { state.notice = '项目不存在。'; return state; }
+    const dm = { id: id(), title: '新对话', kind: 'dm' as const, members: [agent.id], coordinator: agent.id, goal: '', project_id: pid };
     state.conversations.push(dm); state.selected = dm.id;
   } else if (action.type === "add_coder") {
     if (!state.agents.some(a => a.id === 'coder')) {
@@ -87,8 +108,10 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
   } else if (action.type === "open_dm") {
     const agent = state.agents.find(a => a.id === action.agent_id);
     if (!agent) return previous;
-    let dm = state.conversations.find(c => c.kind === "dm" && c.coordinator === agent.id);
-    if (!dm) { dm = { id: id(), title: agent.name, kind: "dm", members: [agent.id], coordinator: agent.id, goal: "" }; state.conversations.push(dm); }
+    const pid = projectFor(action.project_id);
+    if (pid && !projects.some(p => p.id === pid)) { state.notice = '项目不存在。'; return state; }
+    let dm = state.conversations.find(c => c.kind === "dm" && c.coordinator === agent.id && (c.project_id || '') === pid);
+    if (!dm) { dm = { id: id(), title: agent.name, kind: "dm", members: [agent.id], coordinator: agent.id, goal: "", project_id: pid }; state.conversations.push(dm); }
     state.selected = dm.id;
   } else if (action.type === "rename_conversation") {
     const row = state.conversations.find(c => c.id === action.id && c.kind === "group");
@@ -177,10 +200,14 @@ export function demoReducer(previous: DemoState, action: DemoAction): DemoState 
   } else if (action.type === "group") {
     const members = [...new Set(action.members)].filter(member => state.agents.some(agent => agent.id === member));
     if (!action.title.trim() || members.length < 2) { state.notice = "请填写群名，并选择至少两位 Agent。"; return state; }
-    const group = { id: id(), title: action.title.trim().slice(0, 40), kind: "group" as const, members,
-      coordinator: members.includes("tebb") ? "tebb" : members[0], goal: action.goal.trim().slice(0, 500) };
-    state.conversations.push(group); state.selected = group.id;
-    message(group.id, "notice", "协作群已创建。选择发送对象，或让协调者分配工作。", undefined, "notice");
+    const existing = state.conversations.find(c => c.id === action.id && c.kind === 'group');
+    const pid = existing ? existing.project_id || '' : projectFor(action.project_id);
+    if (pid && !projects.some(p => p.id === pid)) { state.notice = '项目不存在。'; return state; }
+    const group = { id: existing?.id || id(), title: action.title.trim().slice(0, 40), kind: "group" as const, members,
+      coordinator: members.includes("tebb") ? "tebb" : members[0], goal: action.goal.trim().slice(0, 500), project_id: pid };
+    if (existing) state.conversations = state.conversations.map(c => c.id === group.id ? group : c);
+    else { state.conversations.push(group); message(group.id, "notice", "协作群已创建。选择发送对象，或让协调者分配工作。", undefined, "notice"); }
+    state.selected = group.id;
   } else if (action.type === "agent") {
     const name = action.agent.name.trim().slice(0, 24);
     if (!name || /[\s@]/.test(name) || state.agents.some(agent => agent.id !== action.agent.id && agent.name === name)) {
@@ -217,9 +244,12 @@ export function restoreDemo(raw: string | null): DemoState {
     if (!Array.isArray(state.agents) || !state.agents.length || !state.agents.every((a: DemoAgent) => a &&
       [a.id, a.name, a.role, a.mark, a.tone, a.model, a.memory].every(value => typeof value === "string") && strings(a.tools))) throw new Error();
     const agents = new Set(state.agents.map((a: DemoAgent) => a.id));
+    state.projects ??= [];
+    if (!Array.isArray(state.projects) || !state.projects.every((p: DemoProject) => p && typeof p.id === 'string' && !!p.id && typeof p.name === 'string' && !!p.name.trim() && p.name.length <= 40) || new Set(state.projects.map((p: DemoProject) => p.id)).size !== state.projects.length) throw new Error();
+    const projects = new Set(state.projects.map((p: DemoProject) => p.id));
     if (!Array.isArray(state.conversations) || !state.conversations.some((c: DemoConversation) => c.id === state.selected) ||
       !state.conversations.every((c: DemoConversation) => c && typeof c.id === "string" && typeof c.title === "string" && typeof c.goal === "string" &&
-        ["dm", "group"].includes(c.kind) && strings(c.members) && c.members.length && c.members.every(member => agents.has(member)) && c.members.includes(c.coordinator))) throw new Error();
+        ["dm", "group"].includes(c.kind) && strings(c.members) && c.members.length && c.members.every(member => agents.has(member)) && c.members.includes(c.coordinator) && (!c.project_id || projects.has(c.project_id)))) throw new Error();
     const conversations = new Set(state.conversations.map((c: DemoConversation) => c.id));
     if (!Array.isArray(state.runs) || !state.runs.every((r: DemoRun) => r && typeof r.id === "string" && conversations.has(r.conversation) && agents.has(r.agent) &&
       typeof r.title === "string" && ["running", "waiting", "succeeded", "cancelled"].includes(r.state) && Number.isInteger(r.step) && r.step >= 0 && r.step <= 3 &&

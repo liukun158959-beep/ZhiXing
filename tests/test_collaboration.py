@@ -140,6 +140,80 @@ class CollaborationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "头像无效"):
                 self.action(type="agent", agent={**state["agents"][0], "avatar": avatar})
 
+    def test_projects_migrate_old_history_and_persist_without_changing_selection(self):
+        before = self.state()
+        with transaction(self.service.path) as (state, _): state.pop('projects', None)
+        migrated = self.state()
+        self.assertEqual(migrated['projects'], [])
+        self.assertEqual(migrated['conversations'], before['conversations'])
+        request = dict(type='create_project', name=' Atlas ', request_id='project-create-001')
+        self.service.action(request); self.service.action(request)
+        state = self.state(); project = state['projects'][0]
+        self.assertEqual(len(state['projects']), 1)
+        self.assertEqual(project['name'], 'Atlas')
+        self.action(type='move_conversation', id='group-research', project_id=project['id'])
+        self.action(type='rename_project', id=project['id'], name='Atlas 开发')
+        reopened = Collaboration(path=self.service.path, managers=self.service.managers, start=False)
+        try:
+            saved = reopened.snapshot()['state']
+            self.assertEqual(saved['projects'], [dict(id=project['id'], name='Atlas 开发')])
+            self.assertEqual(saved['selected'], before['selected'])
+            self.assertEqual(saved['conversations'][0]['project_id'], project['id'])
+        finally: reopened.shutdown()
+
+    def test_project_validation_rolls_back_missing_targets_and_duplicate_names(self):
+        for name in ('', '  ', None, [], 'x'*41):
+            with self.assertRaises(ValueError): self.action(type='create_project', name=name)
+        first = self.action(type='create_project', name='Atlas')['projects'][0]
+        second = self.action(type='create_project', name='研究')['projects'][1]
+        for kind in ('create_project', 'rename_project'):
+            with self.assertRaisesRegex(ValueError, '已存在'): self.action(type=kind, id=second['id'], name='ATLAS')
+        before = self.state()
+        for kind in ('move_conversation', 'new_chat', 'group', 'open_dm'):
+            with self.assertRaises(ValueError): self.action(type=kind, id='group-research' if kind=='move_conversation' else None, project_id='missing', agent_id='tebb', title='测试群', members=['tebb','writer'])
+        self.assertEqual(self.state()['conversations'], before['conversations'])
+        for kind in ('rename_project','delete_project'):
+            with self.assertRaisesRegex(ValueError, '不存在'): self.action(type=kind, id='missing', name='测试')
+        with self.assertRaises(ValueError): self.action(type='move_conversation', id='group-research', project_id=None)
+        self.assertEqual(self.state()['projects'][0], first)
+
+    def test_project_chats_groups_and_partner_entry_keep_their_project(self):
+        project = self.action(type='create_project', name='Atlas')['projects'][0]['id']
+        state = self.action(type='new_chat', project_id=project)
+        dm = next(c for c in state['conversations'] if c['id']==state['selected'])
+        self.assertEqual(dm['project_id'], project)
+        state = self.service.action(dict(type='new_chat', conversation=dm['id'], request_id=uuid.uuid4().hex))['state']
+        self.assertEqual(state['conversations'][-1]['project_id'], project)
+        state = self.action(type='group', title='源码研究', members=['research','writer'], goal='核对源码', project_id=project)
+        group_id = state['selected']
+        state = self.action(type='group', id=group_id, title='修改标题', members=['research','writer'], goal='补充目标')
+        self.assertEqual(next(c for c in state['conversations'] if c['id']==group_id)['project_id'], project)
+        state = self.action(type='open_dm', agent_id='research', project_id=project)
+        self.assertNotEqual(state['selected'], 'dm-research')
+        project_dm = state['selected']
+        self.assertEqual(next(c for c in state['conversations'] if c['id']==project_dm)['project_id'], project)
+        self.assertEqual(self.action(type='open_dm', agent_id='research', project_id=project)['selected'], project_dm)
+        state = self.action(type='new_chat', project_id='')
+        self.assertEqual(state['conversations'][-1]['project_id'], '')
+
+    def test_moving_and_deleting_a_project_preserve_live_work_messages_and_permissions(self):
+        project = self.action(type='create_project', name='研究')['projects'][0]['id']
+        self.action(type='send', text='保留这个任务', target='research', mode='task')
+        before = self.state()
+        moved = self.action(type='move_conversation', id='group-research', project_id=project)
+        self.assertEqual(moved['messages'], before['messages'])
+        self.assertEqual(moved['runs'], before['runs'])
+        self.assertEqual(moved['agents'], before['agents'])
+        self.assertEqual(moved['workspace'], before['workspace'])
+        deleted = self.action(type='delete_project', id=project)
+        self.assertEqual(deleted['projects'], [])
+        self.assertEqual(deleted['messages'], before['messages'])
+        self.assertEqual(deleted['runs'], before['runs'])
+        self.assertEqual(deleted['selected'], before['selected'])
+        self.assertFalse(deleted['conversations'][0].get('project_id'))
+        self.service.tick()
+        self.assertEqual(len(self.work.items), 1)
+
     def test_auto_answer_stays_chat_and_auto_task_hands_off_without_manual_mode(self):
         self.action(type='send', text='介绍一下你能做什么', mode='auto', target='')
         self.service.tick(); root = self.state()['runs'][-1]

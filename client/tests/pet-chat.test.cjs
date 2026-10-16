@@ -143,7 +143,7 @@ test('floating toolbar creates a new conversation without cancelling work, prese
   assert(toolbar.findAllByType('button').every(button=>button.findAllByType('svg').length===1));
   await act(async()=>view.root.findByProps({'aria-label':'创建新对话'}).props.onClick());
   await act(async()=>view.root.findByProps({'aria-label':'创建新对话'}).props.onClick());
-  assert.equal(calls[0].request_id,calls[1].request_id);assert.equal(calls[0].agent_id,'tebb');
+  assert.equal(calls[0].request_id,calls[1].request_id);assert.equal(calls[0].agent_id,'tebb');assert.equal(calls[0].conversation,'old');
   assert.equal(view.root.findByProps({'aria-label':'当前会话'}).props.value,'fresh');assert.equal(input().props.value,'');
   await act(async()=>view.root.findByProps({'aria-label':'当前会话'}).props.onChange({target:{value:'old'}}));
   assert.equal(input().props.value,'保留旧草稿');assert(!calls.some(a=>a.type==='cancel'));await act(async()=>view.unmount());

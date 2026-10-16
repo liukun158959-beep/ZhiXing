@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState, type ReactNode } from "react";
 import { DEMO_STORAGE, RUN_LABELS, STEP_LABELS, demoReducer, initialDemo, restoreDemo, runActive,
-  type DemoAgent, type DemoConversation, type DemoAction, type DemoRun, type DemoState } from "./chat-prototype-state";
+  type DemoAgent, type DemoConversation, type DemoProject, type DemoAction, type DemoRun, type DemoState } from "./chat-prototype-state";
 import { WorkspaceRail } from "./workspace-shell";
 import { rpc, type BackendInfo } from "./api";
 import type { LocalSource } from "./local-sources";
@@ -55,12 +55,14 @@ function AgentForm({ agent, agents, onSave, onClose, real = false, models = [], 
   </Modal>;
 }
 
-function GroupForm({ editing, agents, onCreate, onClose, real = false, actionError = "", busy = false }: { agents: DemoAgent[]; onCreate: (title: string, members: string[], goal: string) => void; onClose: () => void; real?: boolean; actionError?: string; busy?: boolean; editing?: DemoConversation | null }) {
+function GroupForm({ editing, agents, projects, projectId, onCreate, onClose, real = false, actionError = "", busy = false }: { agents: DemoAgent[]; projects: DemoProject[]; projectId: string; onCreate: (title: string, members: string[], goal: string, project: string) => void; onClose: () => void; real?: boolean; actionError?: string; busy?: boolean; editing?: DemoConversation | null }) {
   const [title, setTitle] = useState(editing?.title || "");
   const [goal, setGoal] = useState(editing?.goal || "");
   const [members, setMembers] = useState(editing?.members || agents.map(agent => agent.id));
-  return <Modal title={editing ? "调整协作群" : "新建协作群"} onClose={onClose}><form className="cp-form" onSubmit={event => { event.preventDefault(); if (title.trim() && members.length >= 2) onCreate(title, members, goal); }}>
+  const [project, setProject] = useState(editing?.project_id || projectId);
+  return <Modal title={editing ? "调整协作群" : "新建协作群"} onClose={onClose}><form className="cp-form" onSubmit={event => { event.preventDefault(); if (title.trim() && members.length >= 2) onCreate(title, members, goal, project); }}>
     <label>群名称<input value={title} maxLength={40} placeholder="例如：开源项目观察" onChange={event => setTitle(event.target.value)} required /></label>
+    {!editing && <label>所属项目<select aria-label="协作群所属项目" value={project} onChange={event => setProject(event.target.value)}><option value="">未归类</option>{projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label>}
     <label>共同目标<textarea rows={2} value={goal} maxLength={500} placeholder="这个群要一起完成什么？" onChange={event => setGoal(event.target.value)} /></label>
     <fieldset><legend>邀请 Agent · 至少两位</legend><div className="cp-member-options">{agents.map(agent => <label key={agent.id}><input type="checkbox" checked={members.includes(agent.id)}
       onChange={event => setMembers(event.target.checked ? [...members, agent.id] : members.filter(id => id !== agent.id))} /><Avatar agent={agent} /><span><strong>{agent.name}</strong><small>{agent.role}</small></span></label>)}</div></fieldset>
@@ -111,6 +113,12 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   const [mobileList, setMobileList] = useState(false);
   const [editingGroup, setEditingGroup] = useState<DemoConversation | null>(null);
   const [groupOpen, setGroupOpen] = useState(false);
+  const [groupProject, setGroupProject] = useState('');
+  const [projectForm, setProjectForm] = useState<{ id?: string; name: string } | null>(null);
+  const [deletingProject, setDeletingProject] = useState('');
+  const [movingConversation, setMovingConversation] = useState('');
+  const [moveProject, setMoveProject] = useState('');
+  const [collapsedProjects, setCollapsedProjects] = useState<Record<string, boolean>>({});
   const [editingAgent, setEditingAgent] = useState<DemoAgent | null>(null);
   const [artifactId, setArtifactId] = useState("");
   const [resetOpen, setResetOpen] = useState(false);
@@ -118,6 +126,9 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const conversation = state.conversations.find(item => item.id === state.selected)!;
+  const projects = state.projects || [];
+  const currentProject = projects.find(p => p.id === conversation.project_id);
+  const projectNameError = projectForm && projects.some(p => p.id !== projectForm.id && p.name.toLowerCase() === projectForm.name.trim().toLowerCase()) ? '项目名称已存在。' : '';
   const members = state.agents.filter(agent => conversation.members.includes(agent.id));
   const messages = state.messages.filter(message => message.conversation === conversation.id);
   const runs = state.runs.filter(run => run.conversation === conversation.id);
@@ -171,6 +182,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     setStorageError("内容已加入当前草稿，尚未发送（单条消息最多4000字）。");
   }, [composeRequest]);
   useEffect(() => { if (!developer) setMemoryConversation(""); }, [developer]);
+  useEffect(() => { if (conversation.project_id) setCollapsedProjects(old => ({ ...old, [conversation.project_id!]: false })); }, [conversation.id, conversation.project_id]);
   useEffect(() => { if (!window.addEventListener) return;
     const create = () => dispatch({ type: 'new_chat' });
     const detail = () => { setTab('tasks'); setInspector(true); };
@@ -226,6 +238,11 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   function addAgent() {
     setEditingAgent({ id: "", name: "", role: "", mark: "A", tone: "sage", model: real ? "" : "自定义模型 · 演示", tools: [], memory: "", avatar: "owl", personality: "" });
   }
+  function newGroup(project = currentProject?.id || '') { setEditingGroup(null); setGroupProject(project); setGroupOpen(true); }
+  function historyRow(item: DemoConversation) {
+    return <div className="cp-history-item" key={item.id}><button data-conversation={item.id} data-chat-partner={item.kind==='dm' ? item.coordinator : undefined} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onContextMenu={event => openMenu(item.id,event)} onKeyDown={event => menuKeys(item.id,event)} onClick={() => select(item.id)}>
+      <Avatar group={item.kind==='group'} agent={member(item.coordinator)} /><span><strong>{item.title}</strong><small>{item.kind==='group' ? `协作群 · ${item.members.length} 位伙伴` : member(item.coordinator)?.name}{item.legacy ? ' · 历史' : ''}</small></span>{state.runs.some(run => run.conversation===item.id && runActive(run)) && <i className="cp-live-dot" />}</button><button className="cp-icon-button cp-history-more" aria-label={`${item.title}的会话操作`} title="会话操作" onClick={event => openMenu(item.id, event)}><AppIcon name="more" /></button></div>;
+  }
   function runCard(run: DemoRun) {
     const owner = member(run.agent)!;
     const displayState=run.delivery_state || run.state;
@@ -260,11 +277,17 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     <div className={`cp-layout ${inspector ? "has-inspector" : ""}`}>
       {standalone && <WorkspaceRail developer={developer} onToggle={toggleDeveloper}><RailButton icon="chat" label="伙伴聊天" active onClick={() => {}} /></WorkspaceRail>}
       <aside className={`cp-conversations ${mobileList ? "cp-list-open" : ""}`} aria-label="会话列表">
-        <div className="cp-sidebar-title"><strong>伙伴聊天</strong><div className="cp-sidebar-actions"><button className="cp-icon-button" aria-label="新对话" title="新对话" onClick={() => dispatch({type:"new_chat"})}><AppIcon name="new_chat" /></button><button className="cp-icon-button cp-create-group" aria-label="新建协作群" title="新建协作群" onClick={() => {setEditingGroup(null);setGroupOpen(true);}}><AppIcon name="new_group" /></button></div></div>
+        <div className="cp-sidebar-title"><strong>伙伴聊天</strong><div className="cp-sidebar-actions"><button className="cp-icon-button" aria-label="新对话" title={currentProject ? `在「${currentProject.name}」新建对话` : "新对话"} onClick={() => dispatch({type:"new_chat"})}><AppIcon name="new_chat" /></button><button className="cp-icon-button cp-create-group" aria-label="新建协作群" title="新建协作群" onClick={() => newGroup()}><AppIcon name="new_group" /></button></div></div>
         <div className="cp-list-switch" role="tablist" aria-label="聊天导航"><button role="tab" aria-selected={listView==='history'} onClick={()=>setListView('history')}>对话</button><button role="tab" aria-selected={listView==='companions'} onClick={()=>setListView('companions')}>伙伴</button></div>
-        {listView === 'history' ? <div role="tabpanel" aria-label="对话记录">
-          {[...state.conversations].reverse().map(item => <button key={item.id} data-conversation={item.id} data-chat-partner={item.kind==='dm' ? item.coordinator : undefined} className={`cp-conversation ${item.id === state.selected ? "is-selected" : ""}`} aria-pressed={item.id === state.selected} onContextMenu={event => openMenu(item.id,event)} onKeyDown={event => menuKeys(item.id,event)} onClick={() => select(item.id)}>
-            <Avatar group={item.kind==='group'} agent={member(item.coordinator)} /><span><strong>{item.title}</strong><small>{item.kind==='group' ? `协作群 · ${item.members.length} 位伙伴` : member(item.coordinator)?.name}{item.legacy ? ' · 历史' : ''}</small></span>{state.runs.some(run => run.conversation===item.id && runActive(run)) && <i className="cp-live-dot" />}</button>)}
+        {listView === 'history' ? <div className="cp-history-tree" role="tabpanel" aria-label="对话记录">
+          <div className="cp-list-heading"><span>项目</span><button className="cp-text-button cp-new-project" aria-label="新建项目" onClick={() => setProjectForm({name:''})}><AppIcon name="new_project" />新建</button></div>
+          {!projects.length && <button className="cp-project-empty" onClick={() => setProjectForm({name:''})}>按项目整理对话 ＋</button>}
+          {projects.map(project => { const chats = [...state.conversations].reverse().filter(c => c.project_id === project.id); const open = !collapsedProjects[project.id]; return <section className="cp-chat-project" key={project.id} aria-label={`${project.name}项目`} data-chat-project={project.id}>
+            <div className="cp-project-heading"><button className="cp-project-toggle" aria-expanded={open} aria-controls={`cp-project-${project.id}`} onClick={() => setCollapsedProjects(old => ({...old,[project.id]:open}))}><span className="cp-project-chevron" aria-hidden="true">›</span><AppIcon name="folder" /><strong title={project.name}>{project.name}</strong><small>{chats.length}</small></button><button className="cp-icon-button" aria-label={`在${project.name}中新建对话`} title="在项目中新建对话" disabled={live?.busy} onClick={() => {dispatch({type:'new_chat',project_id:project.id});setCollapsedProjects(old=>({...old,[project.id]:false}));}}><AppIcon name="new_chat" /></button><button className="cp-icon-button" aria-label={`${project.name}的项目设置`} title="项目设置" onClick={() => setProjectForm(project)}><AppIcon name="more" /></button></div>
+            <div id={`cp-project-${project.id}`} className="cp-project-chats" hidden={!open}>{chats.map(historyRow)}{!chats.length && <div className="cp-project-empty"><span>还没有对话</span><button onClick={() => newGroup(project.id)}>新建协作群</button></div>}</div>
+          </section>; })}
+          <div className="cp-list-heading cp-ungrouped-heading"><span>未归类</span><button className="cp-icon-button" aria-label="新建未归类对话" title="新建未归类对话" onClick={()=>dispatch({type:'new_chat',project_id:''})}><AppIcon name="new_chat" /></button></div>
+          {[...state.conversations].reverse().filter(c => !projects.some(p=>p.id===c.project_id)).map(historyRow)}
         </div> : <div role="tabpanel" aria-label="伙伴目录">
           <div className="cp-list-heading"><span>伙伴目录</span><button className="cp-icon-button" aria-label="创建 Agent" onClick={addAgent}>＋</button></div>
           {state.agents.map(agent => <div className="cp-companion-card" key={agent.id}><button data-companion={agent.id} className="cp-conversation" onClick={()=>setEditingAgent(agent)}><Avatar agent={agent}/><span><strong>{agent.name}</strong><small>{agent.personality || agent.role}</small></span></button><button className="cp-text-button" onClick={()=>{dispatch({type:'new_chat',agent_id:agent.id});setListView('history');setTarget('');setUpdateRun('');}}>新对话</button></div>)}
@@ -276,7 +299,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
 
       <div className="cp-chat">
         <header className="cp-chat-header"><div className="cp-chat-title"><button className="cp-icon-button cp-mobile-menu" aria-label="切换会话列表" aria-expanded={mobileList} onClick={() => setMobileList(!mobileList)}>☰</button><Avatar group={conversation.kind === "group"} agent={member(conversation.coordinator)} />
-          <div><h1>{conversation.title}</h1><span>{conversation.kind === "group" ? `你与 ${members.length} 位 Agent · ${member(conversation.coordinator)?.name} 协调` : member(conversation.coordinator)?.role}</span></div></div>
+          <div><h1>{conversation.title}</h1><span className="cp-chat-subtitle">{currentProject && <span className="cp-project-breadcrumb" title={currentProject.name}><AppIcon name="folder" />{currentProject.name}<span aria-hidden="true"> / </span></span>}<span>{conversation.kind === "group" ? `你与 ${members.length} 位 Agent · ${member(conversation.coordinator)?.name} 协调` : member(conversation.coordinator)?.role}</span></span></div></div>
           <div className="cp-context-actions">{real && onProject && <button className="cp-button cp-project-button" aria-label="工作目录与权限" title={state.workspace?.primary || "打开项目文件夹与配置权限"} onClick={onProject}><AppIcon name="folder"/><span>{state.workspace?.primary?.split(/[\\/]/).pop() || "文件夹"}</span></button>}<button className="cp-button" aria-label="当前任务" aria-expanded={inspector && tab==='tasks'} onClick={() => { setInspector(!(inspector && tab==='tasks')); setTab('tasks'); }} title="任务"><AppIcon name="tasks" /></button><button className="cp-button" aria-label="聊天伙伴" onClick={() => { setInspector(!(inspector && tab==='members')); setTab('members'); }} aria-expanded={inspector && tab==='members'} title="伙伴"><AppIcon name="members" /></button><button className="cp-button" aria-label="待你处理" onClick={() => { setInspector(!(inspector && tab==='inbox')); setTab('inbox'); }} aria-expanded={inspector && tab==='inbox'} title="待办"><AppIcon name="inbox" />{pending.length > 0 && <small className="cp-icon-count">{pending.length}</small>}</button></div></header>
         {conversation.kind === "group" && <details className="cp-goal"><summary><span>共同目标</span><span>{conversation.goal || "为这个群确定一个目标，开始协作。"}</span></summary><p>{conversation.goal || "可在伙伴侧栏中调整协作群目标。"}</p></details>}
         <div className="cp-message-list" aria-label={real ? "协作聊天记录" : "原型聊天记录"}>
@@ -347,10 +370,19 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
         }
       }}>
         {state.conversations.find(c => c.id === menu.id)?.kind === "group" && <button role="menuitem" onClick={() => { setRenaming(menu.id); setRenameText(state.conversations.find(c => c.id === menu.id)!.title); setMenu(null); }}>重命名群聊</button>}
+        <button role="menuitem" onClick={() => { setMovingConversation(menu.id); setMoveProject(state.conversations.find(c=>c.id===menu.id)?.project_id || ''); setMenu(null); }}>移动到项目</button>
         <button role="menuitem" onClick={() => { setDeleting(menu.id); setMenu(null); }}>删除对话</button>
         {developer && <button role="menuitem" onClick={() => editMemory(menu.id)}>调试伙伴记忆</button>}
       </div>
     </div>}
+    {projectForm && <Modal title={projectForm.id ? '项目设置' : '新建项目'} onClose={() => setProjectForm(null)}><form className="cp-form" onSubmit={async event => { event.preventDefault(); if (!projectForm.name.trim() || projectNameError) return; if (await sendAction(projectForm.id ? {type:'rename_project',id:projectForm.id,name:projectForm.name} : {type:'create_project',name:projectForm.name})) {setProjectForm(null);setListView('history');} }}>
+      <label>项目名称<input aria-label="项目名称" value={projectForm.name} maxLength={40} placeholder="例如：Atlas 开发、AI 研究" required onChange={event => setProjectForm({...projectForm,name:event.target.value})} /></label>
+      <p className="cp-muted">将相关私聊和协作群归到一起。代码工作目录和执行权限可在顶部「文件夹」中配置。</p>
+      {(projectNameError || live?.error) && <p role="alert" className="cp-error">{projectNameError || live?.error}</p>}
+      <footer>{projectForm.id && <><button type="button" className="cp-text-button" onClick={()=>{const id=projectForm.id!;setProjectForm(null);newGroup(id);}}>新建协作群</button><button type="button" className="cp-text-button cp-danger" onClick={()=>{setDeletingProject(projectForm.id!);setProjectForm(null);}}>删除项目</button></>}<button type="button" className="cp-button" onClick={()=>setProjectForm(null)}>取消</button><button className="cp-button cp-primary" disabled={live?.busy || !projectForm.name.trim() || !!projectNameError}>{projectForm.id ? '保存项目' : '创建项目'}</button></footer>
+    </form></Modal>}
+    {deletingProject && <Modal title="删除项目？" onClose={()=>setDeletingProject('')}><div className="cp-form"><p>删除「{projects.find(p=>p.id===deletingProject)?.name}」后，其中所有对话会移至「未归类」。聊天记录、成果和正在执行的任务都会保留。</p>{live?.error && <p role="alert" className="cp-error">{live.error}</p>}<footer><button className="cp-button" onClick={()=>setDeletingProject('')}>取消</button><button className="cp-button" disabled={live?.busy} onClick={async()=>{if(await sendAction({type:'delete_project',id:deletingProject}))setDeletingProject('');}}>确认删除项目</button></footer></div></Modal>}
+    {movingConversation && <Modal title="移动对话" onClose={()=>setMovingConversation('')}><form className="cp-form" onSubmit={async event=>{event.preventDefault();if(await sendAction({type:'move_conversation',id:movingConversation,project_id:moveProject})){setMovingConversation('');setCollapsedProjects(old=>({...old,[moveProject]:false}));}}}><p>将「{state.conversations.find(c=>c.id===movingConversation)?.title}」移入项目，保留消息、草稿和任务。</p><label>目标项目<select aria-label="目标项目" value={moveProject} onChange={event=>setMoveProject(event.target.value)}><option value="">未归类</option>{projects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label>{!projects.length && <p className="cp-muted">还没有项目，可先在侧栏点击「新建项目」。</p>}{live?.error && <p role="alert" className="cp-error">{live.error}</p>}<footer><button type="button" className="cp-button" onClick={()=>setMovingConversation('')}>取消</button><button className="cp-button cp-primary" disabled={live?.busy}>移动对话</button></footer></form></Modal>}
     {deleting && <Modal title="删除这段对话？" onClose={() => setDeleting("")}><div className="cp-form"><p>删除「{state.conversations.find(c => c.id === deleting)?.title}」的聊天记录和成果。伙伴配置与私有记忆保留；底层任务诊断日志保留。{state.conversations.find(c => c.id===deleting)?.legacy && "旧历史源文件也会保留，此操作仅删除统一工作区中的会话副本。"}</p>
       {state.runs.some(r => r.conversation === deleting && runActive(r)) && <p role="alert" className="cp-error">请先停止此会话中的任务，等待结束后再删除。</p>}
       {live?.error && <p role="alert">{live.error}</p>}<footer><button className="cp-button" onClick={() => setDeleting("")}>取消</button><button className="cp-button" disabled={live?.busy || state.runs.some(r => r.conversation === deleting && runActive(r))} onClick={async () => {
@@ -362,7 +394,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
       <label>伙伴<select value={memoryAgent} onChange={event => { setMemoryAgent(event.target.value); setMemoryDraft(member(event.target.value)!.memory); }}>{state.agents.filter(a => state.conversations.find(c => c.id === memoryConversation)?.members.includes(a.id)).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
       <label>私有记忆<textarea rows={8} maxLength={2000} value={memoryDraft} onChange={event => setMemoryDraft(event.target.value)} /></label>{live?.error && <p role="alert">{live.error}</p>}<footer><button className="cp-button cp-primary" disabled={live?.busy}>保存私有记忆</button></footer>
     </form></Modal>}
-    {groupOpen && <GroupForm editing={editingGroup} agents={state.agents} real={real} actionError={live?.error} busy={live?.busy} onClose={() => setGroupOpen(false)} onCreate={async (title, members, goal) => { if (await sendAction({ type: "group", id: editingGroup?.id, title, members, goal })) { setGroupOpen(false); setTarget(""); setUpdateRun(""); } }} />}
+    {groupOpen && <GroupForm editing={editingGroup} agents={state.agents} projects={projects} projectId={groupProject} real={real} actionError={live?.error} busy={live?.busy} onClose={() => setGroupOpen(false)} onCreate={async (title, members, goal, project_id) => { if (await sendAction({ type: "group", id: editingGroup?.id, title, members, goal, project_id })) { setGroupOpen(false); setTarget(""); setUpdateRun(""); } }} />}
     {editingAgent && <AgentForm developer={developer} agent={editingAgent} agents={state.agents} real={real} models={state.models} actionError={live?.error} busy={live?.busy} onClose={() => setEditingAgent(null)} onSave={async agent => { if (await sendAction({ type: "agent", agent })) setEditingAgent(null); }} />}
     {currentArtifact?.artifact && <Modal title={real ? "成果文档" : "成果文档 · 演示"} onClose={() => setArtifactId("")}><div className="cp-document"><div className="cp-document-label">LOCAL ARTIFACT / {real ? "实际任务成果" : "结构样例"}</div><div className="cp-markdown"><Markdown text={currentArtifact.artifact} externalLinks={standalone} /></div></div>
       <footer className="cp-document-footer"><span>{real ? "成果已保存在本地，未发送到外部服务" : "未生成真实报告，未发送到外部服务"}</span>{!real && <button className="cp-button cp-primary" disabled={state.requests.some(request => request.run === currentArtifact.id)} onClick={() => {
