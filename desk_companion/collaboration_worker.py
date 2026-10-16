@@ -44,7 +44,12 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
     from .model_catalog import require_item
     from .sampling import parse_sampling
     model = require_item(request["model_id"])
-    llm.on_reasoning = lambda piece: emit("llm_progress", True) if piece else None
+    phase = set()
+    def progress(label):
+        emit('llm_progress', True)
+        if label not in phase:
+            phase.add(label); emit('status', label)
+    llm.on_reasoning = lambda piece: progress('正在思考与组织回答。') if piece else None
     llm.on_progress = lambda: emit('llm_progress', True)
     role, kind = request["role"], request["kind"]
     prompt = (f"你是 {role['name']}。tebb 中的协作伙伴。职责：{role['role']}。默认中文，自然简洁，不使用固定称呼或重复自我介绍，不输出内部推理。"
@@ -220,11 +225,28 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
         emit("status", "正在生成委派计划。" if kind == "plan" else "正在调用模型处理。")
         emit("llm_start", {"model": model["model"], "turn": turn+1})
         started = time.monotonic()
+        phase.clear()
+        from .collaboration_stream import RouteText, ReportText
+        report_started = False
+        def report_delta(event, piece):
+            nonlocal report_started
+            if not report_started:
+                emit('answer_reset',True);report_started=True
+            emit(event,piece)
+        route_text, report_text = RouteText(emit), ReportText(report_delta)
+        def content_delta(piece):
+            if kind == 'plan': emit('llm_progress', True)
+            elif kind == 'route':
+                emit('llm_progress',True);route_text.push(piece)
+            else: emit('token', piece)
+        def tool_delta(index, name, arguments):
+            progress('正在整理报告，交付前将核对来源。' if name == 'submit_deliverable' else '正在准备工具调用。')
+            if delivering: report_text.push(index, name, arguments)
+        llm.on_tool_delta = tool_delta
         try:
             tools=[{k:v for k,v in spec.items() if k != "implementation"} for spec in extra.values()]+([schema] if allowed_search and tool_count<search_budget else [])+([fetch_schema] if allowed_fetch and fetch_count<fetch_budget else [])
             if finishing: tools=[t for t in tools if t['function']['name']=='submit_deliverable']
-            response = llm.chat(messages, tools=tools,
-                on_delta=(lambda piece: emit("token", piece)) if kind not in {"plan", "route"} else (lambda piece: emit("llm_progress", True)))
+            response = llm.chat(messages, tools=tools, on_delta=content_delta)
         finally:
             emit("llm_end", {"duration_ms": int((time.monotonic()-started)*1000)})
         usage = response.get("usage") or {}
@@ -410,7 +432,7 @@ def _execute(request, emit, llm=None, search=None, fetch=None):
                     delivery_reviews+=1
                     messages.extend([revision_message(text,answer),dict(role='user',content='提交被标记未完成，请核对这些缺口是否确实阻塞当前用户目标，而非历史清单或额外调查：'+json.dumps(delivery['missing'],ensure_ascii=False)+'。当前原始目标：'+request.get('objective',request['text'])+'。若核心目标仍缺失，保持complete=false并写清；若已完成核心目标，重新提交完整报告，附加缺口放limitations。不得删去实质缺口或编造资料。')])
                     emit('status','正在核对核心交付目标与附加信息缺口。');emit('answer_reset',True);continue
-                emit('token',text)
+                emit('answer_reset',True);emit('token',text)
                 raise PublicFailure('综合交付未完成：'+'；'.join(delivery['missing'])[:500])
         emit("result", text)
         return

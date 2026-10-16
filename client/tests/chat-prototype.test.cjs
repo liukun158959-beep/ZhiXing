@@ -35,6 +35,56 @@ function environment() {
   return { saved, timers };
 }
 
+test('composer grows, caps overflow and shrinks after clearing, including width changes',()=>{
+  environment();let resized;global.ResizeObserver=class{constructor(cb){resized=cb;}observe(){}disconnect(){}};
+  global.getComputedStyle=()=>({minHeight:'44px',maxHeight:'180px',borderTopWidth:'1px',borderBottomWidth:'1px'});
+  let content=40;const node={style:{},get scrollHeight(){return content;},getBoundingClientRect:()=>({width:500})};
+  const {useAutoGrowInput}=load('auto-grow-input');
+  function Input({value}){const ref=React.useRef(null);useAutoGrowInput(ref,value,'conversation');return React.createElement('textarea',{ref,value,readOnly:true});}
+  let view;act(()=>{view=create(React.createElement(Input,{value:''}),{createNodeMock:()=>node});});
+  assert.equal(node.style.height,'44px');content=130;
+  act(()=>view.update(React.createElement(Input,{value:'多行内容'})));assert.equal(node.style.height,'132px');assert.equal(node.style.overflowY,'hidden');
+  content=400;act(()=>resized([{contentRect:{width:260}}]));assert.equal(node.style.height,'180px');assert.equal(node.style.overflowY,'auto');
+  content=40;act(()=>view.update(React.createElement(Input,{value:''})));assert.equal(node.style.height,'44px');assert.equal(node.style.overflowY,'hidden');
+  act(()=>view.unmount());delete global.ResizeObserver;delete global.getComputedStyle;
+});
+
+test('incremental sync preserves unchanged history, applies removals and refuses stale action replies',()=>{
+  const {CollaborationSync}=load('collaboration-sync');const sync=new CollaborationSync();
+  const state={...initialDemo(),revision:1};sync.update({state,sync:'one'});
+  const previous=sync.state.messages[0];const added={id:'stream',conversation:state.selected,sender:'tebb',text:'第一段'};
+  const next=sync.update({sync:'two',patch:{base:'one',values:{revision:2},collections:{messages:{upsert:[added],order:[previous.id,added.id]}}}});
+  assert.equal(next.messages[0],previous);assert.equal(next.messages[1].text,'第一段');assert.equal(next.messages.length,2);
+  sync.snapshot({...next,revision:3,selected:'dm-writer'});
+  assert.equal(sync.update({sync:'old',patch:{base:'two',values:{revision:2,selected:'dm-tebb'},collections:{}}}),null);
+  assert.equal(sync.state.selected,'dm-writer');assert.equal(sync.sync,'');
+  assert.equal(sync.update({state,sync:'old'}),null);assert.equal(sync.state.revision,3);
+});
+
+test('a frontend hot reload stays compatible with the previous backend without hiding real failures',async()=>{
+  const calls=[];const {loadCollaboration}=load('collaboration-sync',{'./api':{rpc:async(_info,_method,args)=>{
+    calls.push(args);if('since' in args)throw new Error("Bridge.load_collaboration() got an unexpected keyword argument 'since'");return {state:initialDemo()};
+  }}});
+  const info={port:108,token:'fixture'};await loadCollaboration(info,'baseline');await loadCollaboration(info,'');
+  assert.deepEqual(calls,[{since:'baseline'},{},{}]);
+  const broken=load('collaboration-sync',{'./api':{rpc:async()=>{throw new Error('database unavailable');}}});
+  await assert.rejects(()=>broken.loadCollaboration(info,''),/database unavailable/);
+});
+
+test('normal chat shows actual execution progress and tools while route handoff does not create a canned reply',()=>{
+  environment();const state=initialDemo();state.selected='dm-tebb';state.revision=1;
+  state.runs=[{id:'route',conversation:state.selected,agent:'tebb',state:'succeeded',kind:'route',events:[],updates:[],applied:0,title:'路由',step:0},
+    {id:'task',parent:'route',conversation:state.selected,agent:'tebb',state:'running',kind:'task',title:'研究',step:0,updates:[],applied:0,status:'正在调用：web_search',events:['正在思考与组织回答。','tool_start: web_search Agent docs','tool_end: web_search success']}];
+  state.messages=[{id:'route-message',conversation:state.selected,sender:'tebb',run:'route',text:'已开始处理，任务进度会持续更新。'},
+    {id:'task-message',conversation:state.selected,sender:'tebb',run:'task',text:'正在整理来源。'}];
+  const {ChatPrototype}=load('chat-prototype');let view;
+  act(()=>{view=create(React.createElement(ChatPrototype,{developerMode:false,live:{state,act:async()=>true,busy:false,error:''}}));});
+  const chat=view.root.findByProps({'aria-label':'协作聊天记录'});
+  assert(!text(chat).includes('已开始处理，任务进度会持续更新。'));
+  assert(text(chat).includes('正在思考与组织回答。'));assert(text(chat).includes('联网搜索 · 开始'));assert(text(chat).includes('联网搜索 · 结束'));
+  assert(text(chat).includes('正在整理来源。'));act(()=>view.unmount());
+});
+
 test('chat stays available during work; task supplements are scoped and applied at the next step', () => {
   const first = initialDemo(), original = JSON.stringify(first);
   let state = send(first, '进度如何？');

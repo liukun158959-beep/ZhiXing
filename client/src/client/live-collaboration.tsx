@@ -4,6 +4,7 @@ import type { LocalSource } from "./local-sources";
 import { ChatPrototype } from "./chat-prototype";
 import type { DemoAction, DemoState } from "./chat-prototype-state";
 import { startupReady } from "./startup";
+import { CollaborationSync, loadCollaboration } from './collaboration-sync';
 
 const ACCESS_KEY = "tebb.collaboration.preview-access";
 
@@ -31,6 +32,7 @@ export function LiveCollaboration({ info: provided, standalone = false, composeR
   const [busy, setBusy] = useState(false);
   const [retry, setRetry] = useState(0);
   const pending = useRef<{ body: string; id: string } | null>(null);
+  const sync = useRef(new CollaborationSync());
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; if (standalone) startupReady(); return () => { mounted.current = false; }; }, [standalone]);
   useEffect(() => {
@@ -44,7 +46,8 @@ export function LiveCollaboration({ info: provided, standalone = false, composeR
     return () => { live = false; };
   }, [provided, retry]);
   const accept = useCallback((next: DemoState) => {
-    setState(previous => !previous || (next.revision || 0) >= (previous.revision || 0) ? next : previous);
+    const accepted=sync.current.snapshot(next);
+    if(accepted)setState(accepted);
   }, []);
   useEffect(() => {
     if (!info) return;
@@ -52,12 +55,12 @@ export function LiveCollaboration({ info: provided, standalone = false, composeR
     const refresh = async () => {
       if (loading) return; loading = true;
       try {
-        const result = await rpc<{ ok: boolean; state: DemoState }>(info, "load_collaboration", {}, { timeoutMs: 12000 });
-        if (live) { accept(result.state); setError(""); }
+        const result = await loadCollaboration(info, sync.current.sync);
+        if (live) { const next=sync.current.update(result);if(next)setState(next);setError(""); }
       } catch (err) { if (live) setError(String(err)); }
       finally { loading = false; }
     };
-    void refresh(); const timer = window.setInterval(() => void refresh(), 1000);
+    void refresh(); const timer = window.setInterval(() => void refresh(), 400);
     return () => { live = false; window.clearInterval(timer); };
   }, [info, retry, accept]);
   const act = async (action: DemoAction): Promise<boolean> => {

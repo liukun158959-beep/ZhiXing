@@ -9,6 +9,8 @@ import "./chat-prototype.css";
 
 import { ComposerPicker } from './composer-popover';
 import { StreamText } from "./stream-text";
+import { useAutoGrowInput } from './auto-grow-input';
+import { RunProgress, visibleChatMessage } from './run-progress';
 import { Markdown } from "./Markdown";
 import { ProjectMigration } from './project-migration';
 import { CompanionAvatar as Avatar, RailButton, AVATAR_NAMES, AppIcon, readDeveloperMode, saveDeveloperMode } from "./companion-ui";
@@ -126,20 +128,22 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
   const [resetOpen, setResetOpen] = useState(false);
   const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
   const end = useRef<HTMLDivElement>(null);
+  const messageList = useRef<HTMLDivElement>(null), following = useRef(true);
   const input = useRef<HTMLTextAreaElement>(null);
   const conversation = state.conversations.find(item => item.id === state.selected)!;
   const projects = state.projects || [];
   const currentProject = projects.find(p => p.id === conversation.project_id);
   const projectNameError = projectForm && projects.some(p => p.id !== projectForm.id && p.name.toLowerCase() === projectForm.name.trim().toLowerCase()) ? '项目名称已存在。' : '';
   const members = state.agents.filter(agent => conversation.members.includes(agent.id));
-  const messages = state.messages.filter(message => message.conversation === conversation.id);
   const runs = state.runs.filter(run => run.conversation === conversation.id);
+  const messages = state.messages.filter(message => message.conversation === conversation.id && visibleChatMessage(message, runs));
   const active = state.runs.filter(runActive);
   const visibleRuns = developer ? runs : runs.filter(run => !["chat", "route", "compress"].includes(run.kind || ""));
   const pending = state.requests.filter(request => request.state === "pending");
   const selectedRun = runs.find(run => run.id === updateRun);
   const currentArtifact = state.runs.find(run => run.id === artifactId);
   const draft = drafts[conversation.id] || "";
+  useAutoGrowInput(input, draft, conversation.id);
   const setDraft = (text: string) => setDrafts(previous => ({ ...previous, [conversation.id]: text }));
   const [attachmentMap, setAttachmentMap] = useState<Record<string, LocalSource[]>>({});
   const attachments = attachmentMap[conversation.id] || [];
@@ -166,7 +170,8 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     return () => window.clearInterval(timer);
   }, [automatic, real]);
   useEffect(() => { if (!active.length) setAutomatic(false); }, [active.length]);
-  useEffect(() => { end.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }); }, [state.selected, messages.length]);
+  useEffect(() => { following.current=true; }, [state.selected]);
+  useEffect(() => { if(following.current && messageList.current)messageList.current.scrollTop=messageList.current.scrollHeight; }, [state.selected,state.revision,messages.length]);
   useEffect(() => { if (tab === "tasks" && inspector && focusedRun) document.getElementById(`cp-run-${focusedRun}`)?.scrollIntoView?.({ block: "nearest" }); }, [focusedRun, tab, inspector]);
 
   useEffect(() => {
@@ -236,6 +241,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
     const action: DemoAction = { type: "send", text: draft, target, mode, run: updateRun || undefined, skills, attachments: attachments.map(a => a.id), model_id: modelPick, ...(developer ? { sampling } : {}) };
     if (live) { if (!await sendAction(action)) return; }
     else { const next = demoReducer(state, action); dispatch(action); if (next.notice) return; }
+    following.current=true;
     setDraft(""); setUpdateRun(""); setPicker(""); setSelectedSkills(old => ({ ...old, [conversation.id]: [] })); setAttachmentMap(old => ({ ...old, [conversation.id]: [] })); attachments.forEach(a => onDetach?.(a.id));
   }
   function addAgent() {
@@ -274,7 +280,7 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
       <div className="cp-task-actions">{runActive(run) ? <>{run.kind !== "chat" && <button onClick={() => supplement(run)} disabled={run.state === "cancelling"}>补充要求</button>}<button onClick={() => dispatch({ type: "cancel", id: run.id })} disabled={run.state === "cancelling"}>停止</button></> :
         run.artifact ? <button onClick={() => setArtifactId(run.id)}>查看成果 ↗</button> : <span className="cp-muted">未生成成果</span>}</div>
       {real && run.kind === "plan" && state.runs.some(child => child.parent === run.id && runActive(child)) && <button className="cp-text-button" onClick={() => dispatch({ type: "cancel", id: run.id })}>停止整条协作链</button>}
-      {developer && <details><summary>执行记录 · {run.events.length}</summary><ol>{run.events.map((event, index) => <li key={index}>{event}</li>)}</ol></details>}
+      <RunProgress run={run} />
       {!!run.changes?.length && <details><summary>文件改动 · {run.changes.length}</summary>{run.changes.map((change,i) => <div key={i}><strong>{change.path}</strong><pre>{change.diff}</pre></div>)}</details>}
       {!!run.checks?.length && <details><summary>实际命令回执 · {run.checks.length}</summary>{run.checks.map((check,i) => <div key={i}><code>{check.command}</code><p>{check.state} · 退出码 {check.exit_code ?? "无"}{check.stale ? " · 此后文件有修改，需要重新验证" : ""}</p>{check.diff_limited && <p>文本差异采集达到上限，部分文件未覆盖。</p>}<pre>{check.output}</pre></div>)}</details>}
     </article>;
@@ -314,12 +320,13 @@ export function ChatPrototype({ standalone = false, live, composeRequest, naviga
           <div><h1>{conversation.title}</h1><span className="cp-chat-subtitle">{currentProject && <span className="cp-project-breadcrumb" title={currentProject.name}><AppIcon name="folder" />{currentProject.name}<span aria-hidden="true"> / </span></span>}<span>{conversation.kind === "group" ? `你与 ${members.length} 位 Agent · ${member(conversation.coordinator)?.name} 协调` : member(conversation.coordinator)?.role}</span></span></div></div>
           <div className="cp-context-actions">{real && onProject && <button className="cp-button cp-project-button" aria-label="工作目录与权限" title={state.workspace?.primary || "打开项目文件夹与配置权限"} onClick={onProject}><AppIcon name="folder"/><span>{state.workspace?.primary?.split(/[\\/]/).pop() || "文件夹"}</span></button>}<button className="cp-button" aria-label="当前任务" aria-expanded={inspector && tab==='tasks'} onClick={() => { setInspector(!(inspector && tab==='tasks')); setTab('tasks'); }} title="任务"><AppIcon name="tasks" /></button><button className="cp-button" aria-label="聊天伙伴" onClick={() => { setInspector(!(inspector && tab==='members')); setTab('members'); }} aria-expanded={inspector && tab==='members'} title="伙伴"><AppIcon name="members" /></button><button className="cp-button" aria-label="待你处理" onClick={() => { setInspector(!(inspector && tab==='inbox')); setTab('inbox'); }} aria-expanded={inspector && tab==='inbox'} title="待办"><AppIcon name="inbox" />{pending.length > 0 && <small className="cp-icon-count">{pending.length}</small>}</button></div></header>
         {conversation.kind === "group" && <details className="cp-goal"><summary><span>共同目标</span><span>{conversation.goal || "为这个群确定一个目标，开始协作。"}</span></summary><p>{conversation.goal || "可在伙伴侧栏中调整协作群目标。"}</p></details>}
-        <div className="cp-message-list" aria-label={real ? "协作聊天记录" : "原型聊天记录"}>
+        <div className="cp-message-list" ref={messageList} onScroll={event=>{const el=event.currentTarget;following.current=el.scrollHeight-el.scrollTop-el.clientHeight<48;}} aria-label={real ? "协作聊天记录" : "原型聊天记录"}>
           {!messages.length && <div className="cp-empty-chat"><Avatar agent={member(conversation.coordinator)} /><h2>从一句话开始</h2><p>直接聊天，或者将目标交给 Agent。<br />私聊与协作群分别保留各自的消息。</p><button className="cp-button" onClick={() => { setDraft("帮我整理这周的研究方向"); setMode("auto"); input.current?.focus(); }}>试试交给 Agent ↗</button></div>}
           {messages.map(item => item.kind === "notice" ? <p key={item.id} className="cp-system-message">{item.text}</p> : <article key={item.id} className={`cp-message ${item.sender === "user" ? "cp-message-user" : ""}`}>
             {item.sender === "user" ? <span className="cp-user-avatar">你</span> : <Avatar agent={member(item.sender)} />}
             <div className="cp-message-content"><div className="cp-message-author"><strong>{item.sender === "user" ? "你" : member(item.sender)?.name}</strong>{item.kind === "result" && <span className="cp-result-tag">成果</span>}</div>
-              <div className="cp-markdown"><StreamText text={item.text || (real ? "正在等待模型响应…" : "")} active={!!item.run && runs.some(r=>r.id===item.run && runActive(r))} externalLinks={standalone} /></div>
+              {item.sender !== 'user' && <RunProgress run={runs.find(r=>r.id===item.run)} />}
+              {(item.text || !real) && <div className="cp-markdown"><StreamText text={item.text} active={!!item.run && runs.some(r=>r.id===item.run && runActive(r))} externalLinks={standalone} /></div>}
               {item.sender !== 'user' && item.run && <div className="cp-message-footer">{(developer || !["chat","route","compress"].includes(runs.find(run => run.id===item.run)?.kind || "")) && <button className="cp-message-reference" onClick={() => { setFocusedRun(item.run!); setInspector(true); setTab("tasks"); }}>↗ 关联任务</button>}
               {real && <small className="cp-message-usage" title="本条消息的执行模型与输入／输出 token 用量">{runs.find(r => r.id===item.run)?.model} · ↑ {runs.find(r => r.id===item.run)?.input_tokens || 0} / ↓ {runs.find(r => r.id===item.run)?.output_tokens || 0}</small>}
               {real && backend && backend.scope!=='collaboration' && item.sender!=='user' && item.run && runs.some(r=>r.id===item.run && r.state==='succeeded' && ['task','chat','route'].includes(r.kind || '') && !runs.some(child=>child.parent===r.id)) && <button className="cp-message-reference" title={currentProject?'保存到知识库并共享为本项目资料':'保存到知识库'} onClick={async()=>{try { const result=await rpc<{ok:boolean;error?:string}>(backend,'save_collaboration_note',{run_id:item.run}); if(!result.ok) throw new Error(result.error || '收藏失败'); setStorageError(currentProject?`已收藏到知识库，并加入「${currentProject.name}」项目资料。`:'已收藏到知识库的「伙伴成果」笔记，可继续作为资料使用。'); window.dispatchEvent(new Event('tebb-notebooks-changed')); } catch(error){setStorageError(String(error));} }}>{currentProject?'收藏到项目笔记':'收藏到笔记'}</button>}

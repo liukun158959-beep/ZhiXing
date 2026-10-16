@@ -95,7 +95,7 @@
 .cp-live-bar button:hover:not(:disabled) { color: var(--cp-accent); }
 .cp-composer { border: 1px solid hsl(var(--foreground) / .17); border-radius: 12px; background: var(--cp-surface); padding: 9px 11px; box-shadow: 0 6px 24px #00000008; }
 .cp-composer:focus-within { border-color: hsl(var(--primary) / .5); }
-.cp-composer textarea { display: block; width: 100%; min-height: 44px; max-height: 144px; resize: vertical; background: transparent; border: none; outline: none !important; font-size: 14px; line-height: 1.6; }
+.cp-composer textarea { display: block; box-sizing: border-box; width: 100%; min-height: 44px; max-height: min(240px, 32vh); resize: none; background: transparent; border: none; outline: none !important; font-size: 14px; line-height: 1.6; }
 .cp-composer textarea::placeholder { color: var(--cp-muted); opacity: .7; }
 .cp-composer-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 5px; flex-wrap: wrap; }
 .cp-composer-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -499,6 +499,7 @@
 .pet-chat-placeholder { color:hsl(var(--muted-foreground)); margin:18px 0; }
 .pet-chat-message { margin-bottom:16px; }
 .pet-chat-message > small { display:block; color:hsl(var(--muted-foreground)); margin-bottom:4px; font-size:11px; }
+.pet-chat-stop { padding:2px 0; font-size:11px; color:hsl(var(--muted-foreground))!important; background:transparent; }
 .pet-chat-message.from-user { padding:8px 10px; background:hsl(var(--card)); border-left:2px solid hsl(var(--primary) / .5); }
 .pet-chat-task { border:1px solid hsl(var(--border)); padding:8px 10px; margin:12px 0; font-size:11px; }
 .pet-chat-task.is-running { border-color:hsl(var(--primary) / .4); }
@@ -509,7 +510,16 @@
 .pet-chat-task button { padding:4px 8px; border:1px solid hsl(var(--border)); }
 .pet-chat-error { font-size:11px; color:hsl(var(--destructive)); padding:6px 12px; max-height:70px; overflow:auto; }
 .pet-chat-composer { padding:10px 12px; border-top:1px solid hsl(var(--border)); background:hsl(var(--card)); }
-.pet-chat-composer textarea { width:100%; min-height:48px; max-height:110px; resize:vertical; background:transparent; color:inherit; outline:none; }
+.pet-chat-composer textarea { box-sizing:border-box; width:100%; min-height:48px; max-height:min(160px,30vh); resize:none; background:transparent; color:inherit; outline:none; }
+.pet-chat-composer { flex-shrink:0; }
+.tebb-run-progress { color:hsl(var(--muted-foreground)); font-size:12px; margin:5px 0 8px; }
+.tebb-run-progress summary { display:flex; align-items:center; gap:6px; cursor:pointer; list-style:none; }
+.tebb-run-progress summary::-webkit-details-marker { display:none; }
+.tebb-run-progress summary::after { content:'›'; flex-shrink:0; transition:transform .15s; }
+.tebb-run-progress[open] summary::after { transform:rotate(90deg); }
+.tebb-run-progress summary span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tebb-run-progress ol { max-height:180px; overflow:auto; padding-left:22px; margin:6px 0; overflow-wrap:anywhere; }
+.tebb-run-progress li { margin:3px 0; }
 .pet-chat-composer footer { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:5px; }
 .pet-chat-composer footer > span { font-size:10px; color:hsl(var(--muted-foreground)); }
 .pet-chat-composer button { padding:4px 9px; background:hsl(var(--primary)); color:hsl(var(--primary-foreground)); font-size:12px; }

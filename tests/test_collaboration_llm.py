@@ -52,11 +52,13 @@ class StreamingTests(unittest.TestCase):
             self.assertEqual(request.headers['Authorization'],'Bearer fixture-key')
             return httpx.Response(200,text=': keepalive\n\n'+''.join('data: '+json.dumps(c)+'\n\n' for c in chunks)+'data: [DONE]\n\n')
         llm=self.llm(handle);text=[];reasoning=[];llm.on_reasoning=reasoning.append
+        fragments=[];llm.on_tool_delta=lambda *args:fragments.append(args)
         result=llm.chat([dict(role='user',content='test')],tools=[dict(type='function')],on_delta=text.append)
         self.assertEqual(text,['你好']);self.assertEqual(reasoning,['private'])
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(result['usage']['total_tokens'],21)
         self.assertEqual(result['message']['tool_calls'][0]['function'],dict(name='web_search',arguments='{"query":"AI"}'))
+        self.assertEqual(fragments,[(0,'web_','{"query":'),(0,'web_search','{"query":"AI"}')])
         self.assertEqual(seen[0]['reasoning_effort'],'low')
         self.assertTrue(seen[0]['stream_options']['include_usage'])
 

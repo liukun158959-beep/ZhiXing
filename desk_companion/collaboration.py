@@ -204,13 +204,13 @@ class Collaboration:
         if start:
             self.thread.start()
 
-    def snapshot(self):
+    def snapshot(self, since=""):
         from .model_catalog import public_catalog
         with self.lock, transaction(self.path) as (state, _):
             result = copy.deepcopy(state)
         # Internal snapshots/keys/worker requests never cross the browser boundary.
         for run in result["runs"]:
-            for key in ("input", "agent_config", "members", "context", "cursor", "task", "attempt", "parent_draft", "source_evidence", "selection", "compress_ids"):
+            for key in ("input", "agent_config", "members", "context", "cursor", "task", "attempt", "parent_draft", "source_evidence", "selection", "compress_ids", "public_answer"):
                 run.pop(key, None)
         catalog = public_catalog()
         result["models"] = [{"id": item["id"], "model": item["model"]} for item in catalog["items"]]
@@ -224,7 +224,24 @@ class Collaboration:
         for project in result['projects']:
             project['primary'] = load(project['id'])['primary']
         result["real"] = True
-        return {"ok": True, "state": result}
+        # Poll only public changes; a long history must not be retransmitted for
+        # every arriving token. A missed/expired baseline falls back to full state.
+        sync = hashlib.sha256(json.dumps(result,ensure_ascii=False).encode()).hexdigest()
+        with self.lock:
+            cache = getattr(self,'_public_snapshots',{})
+            before = cache.get(since) if isinstance(since,str) else None
+            cache[sync] = copy.deepcopy(result)
+            while len(cache)>4: cache.pop(next(iter(cache)))
+            self._public_snapshots = cache
+        if before is None: return {"ok":True,"state":result,"sync":sync}
+        collections, values = {}, {}
+        for key,value in result.items():
+            if value == before.get(key): continue
+            if key in {'messages','runs','conversations','agents','projects','requests'}:
+                old = {row['id']:row for row in before.get(key,[])}
+                collections[key] = dict(upsert=[row for row in value if row!=old.get(row['id'])],order=[row['id'] for row in value])
+            else: values[key] = value
+        return dict(ok=True, sync=sync, patch=dict(base=since,values=values,collections=collections))
 
     @staticmethod
     def _id():
@@ -565,6 +582,8 @@ class Collaboration:
                     run["cursor"] = event["seq"]
                     kind, data = event["kind"], event["data"]
                     if kind == "status": run["events"].append(str(data)); run["status"] = str(data)
+                    elif kind == 'token' and run['kind'] == 'route': run['public_answer'] = run.get('public_answer','') + str(data)
+                    elif kind == 'answer_reset': run.pop('public_answer',None)
                     elif kind == "llm_start": run["calls"] += 1; run["events"].append("调用模型：" + run["model"])
                     elif kind == "collab_applied": run["applied"] = int(data)
                     elif kind == "usage":
@@ -582,7 +601,8 @@ class Collaboration:
                             if counter: run[counter]=run.get(counter,0)+1
                             run["tool_calls"] = run.get("tool_calls", 0)+1
                         run["events"].append(f"{kind}: {data.get('tool')} {data.get('url') or data.get('query') or ''} {data.get('status', '')} {data.get('provider') or ''} {data.get('error', '')}")
-                run["answer"] = task["answer"]
+                        run['status'] = ('正在调用：' if kind=='tool_start' else '调用结束：') + str(data.get('tool',''))
+                run["answer"] = run.get('public_answer','') if run['kind'] in {'route','plan'} and task['state'] not in TERMINAL else task["answer"]
                 if run["state"] != "cancelling": run["state"] = task["state"]
                 for message in state["messages"]:
                     if message.get("run") == run["id"] and message["sender"] == run["agent"]: message["text"] = run["answer"]
@@ -620,7 +640,8 @@ class Collaboration:
                         child['members'] = run.get('members', [])
                         child['selection'] = run.get('selection', {})
                         if run.get('sampling'): child['sampling'] = run['sampling']
-                        run['answer'] = '已开始处理，任务进度会持续更新。'
+                        run['answer'] = ''
+                        run['handoff'] = child['id']
                     self._finish(state,run,'succeeded'); continue
                 if run['kind'] == 'compress':
                     conversation = next(c for c in state['conversations'] if c['id']==run['conversation'])

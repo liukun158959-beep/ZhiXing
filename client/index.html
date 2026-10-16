@@ -42,7 +42,14 @@
         pointer-events: auto;
         white-space: pre-wrap;
         overflow-wrap: anywhere;
+        color-scheme: dark;
+        scrollbar-width: thin;
+        scrollbar-color: #6e6b62 transparent;
       }
+      #bubble::-webkit-scrollbar { width: 6px; height: 6px; }
+      #bubble::-webkit-scrollbar-track, #bubble::-webkit-scrollbar-corner { background: transparent; }
+      #bubble::-webkit-scrollbar-thumb { background: #6e6b62; border-radius: 8px; }
+      #bubble::-webkit-scrollbar-thumb:hover { background: #aaa28b; }
       #bubble.hidden, #menu.hidden { display: none; }
       #bubble[data-kind="error"] { border-color: #ff6b6b; color: #ffb4b4; }
       #menu {

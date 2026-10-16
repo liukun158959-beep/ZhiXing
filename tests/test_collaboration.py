@@ -56,6 +56,39 @@ class CollaborationTests(unittest.TestCase):
         return json.dumps({"tasks": [dict(agent_id="research", title="研究", instructions="根据提供材料研究", depends_on=None),
             dict(agent_id="writer", title="报告", instructions="根据研究成果写报告", depends_on=dependency)]})
 
+    def test_route_public_tokens_and_tool_progress_reach_chat_before_completion(self):
+        state=self.action(type='send',text='请比较这两种算法')
+        run=state['runs'][-1];self.service.tick();run=self.state()['runs'][-1]
+        task=self.chat.items[run['task']] if 'task' in run else next(iter(self.chat.items.values()))
+        task.update(state='running',answer='第一段')
+        task['events']=[dict(seq=1,kind='token',data='第一段'),dict(seq=2,kind='status',data='正在思考与组织回答。')]
+        self.service.tick();state=self.state()
+        self.assertEqual(state['messages'][-1]['text'],'第一段')
+        self.assertEqual(state['runs'][-1]['status'],'正在思考与组织回答。')
+        task.update(state='succeeded',answer=json.dumps(dict(mode='task',instructions='control only')))
+        self.service.tick();state=self.state()
+        route=next(r for r in state['runs'] if r['id']==run['id'])
+        self.assertEqual(route['answer'],'');self.assertEqual(state['runs'][-1]['parent'],run['id'])
+        self.assertEqual(route['handoff'],state['runs'][-1]['id'])
+        self.assertNotIn('已开始处理，任务进度会持续更新。',str(state['messages']))
+
+    def test_public_snapshot_delta_updates_orders_deletions_and_redacts_internal_data(self):
+        before=self.service.snapshot();self.action(type='send',text='hello')
+        update=self.service.snapshot(since=before['sync'])
+        self.assertNotIn('state',update)
+        merged=copy.deepcopy(before['state']);merged.update(update['patch']['values'])
+        for key,delta in update['patch']['collections'].items():
+            rows={row['id']:row for row in merged[key]};rows.update({row['id']:row for row in delta['upsert']})
+            merged[key]=[rows[ident] for ident in delta['order']]
+        self.assertEqual(merged,self.state())
+        self.assertNotIn('agent_config',str(update));self.assertNotIn('fixture-key',str(update))
+        unchanged=self.service.snapshot(since=update['sync'])
+        self.assertEqual(unchanged['patch']['collections'],{});self.assertEqual(unchanged['patch']['values'],{})
+        self.action(type='delete_conversation',id='dm-writer')
+        removed=self.service.snapshot(since=update['sync'])
+        self.assertNotIn('dm-writer',removed['patch']['collections']['conversations']['order'])
+        self.assertIn('state',self.service.snapshot(since='expired'))
+
     def test_plain_greeting_streams_with_history_but_actions_still_route(self):
         state=self.action(type='send',text='hello!')
         self.assertEqual(state['runs'][-1]['kind'],'chat')
@@ -662,6 +695,24 @@ class CollaborationTests(unittest.TestCase):
         with self.assertRaisesRegex(PublicFailure,'未完成'):execute(request,lambda *_:None,llm=llm)
         llm.complete=True;request['source_evidence']=sources[:1]
         with self.assertRaises(PublicFailure):execute(request,lambda *_:None,llm=llm)
+
+    def test_delivery_body_streams_before_tool_completion_and_replaces_preamble(self):
+        request=self.request(role=dict(id='writer',name='墨墨',role='综合报告',tools=[]))
+        request.update(stage='deliver');events=[];report='# 报告\n\n这是逐段生成的正文。'
+        class LLM:
+            def chat(_,messages,tools,on_delta):
+                _.on_reasoning('PRIVATE_REASONING');_.on_reasoning('PRIVATE_REASONING')
+                on_delta('我来整理…')
+                raw=json.dumps(dict(report=report,complete=True,missing=[]),ensure_ascii=False)
+                for end in range(1,len(raw)+1):_.on_tool_delta(0,'submit_deliverable',raw[:end])
+                self.assertFalse(any(k=='result' for k,v in events))
+                reset=max(i for i,(k,v) in enumerate(events) if k=='answer_reset')
+                self.assertEqual(''.join(v for k,v in events[reset+1:] if k=='token'),report)
+                return dict(message=dict(tool_calls=[dict(id='delivery',function=dict(name='submit_deliverable',arguments=raw))]),usage={})
+        execute(request,lambda k,d:events.append((k,d)),llm=LLM())
+        self.assertEqual(events[-1],('result',report))
+        self.assertEqual(sum(k=='status' and v=='正在思考与组织回答。' for k,v in events),1)
+        self.assertNotIn('PRIVATE_REASONING',str(events))
 
     def test_repository_tool_events_do_not_consume_search_quota(self):
         self.action(type='send',text='读取项目',target='research',mode='task');self.service.tick()

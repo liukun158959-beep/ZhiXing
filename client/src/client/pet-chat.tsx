@@ -3,8 +3,11 @@ import { useEffect, useRef, useState } from 'react';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { backendInfo, rpc, type BackendInfo } from './api';
-import { runActive, RUN_LABELS, type DemoState } from './chat-prototype-state';
+import { runActive, type DemoState } from './chat-prototype-state';
 import { StreamText } from './stream-text';
+import { useAutoGrowInput } from './auto-grow-input';
+import { RunProgress, visibleChatMessage } from './run-progress';
+import { CollaborationSync, loadCollaboration } from './collaboration-sync';
 import { composerTrigger, applyComposerChoice } from './composer-picker';
 import { AppIcon } from './companion-ui';
 
@@ -23,14 +26,16 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
   const input=useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null), following = useRef(true), generation = useRef(0), alive = useRef(true);
   const pending = useRef<{ fingerprint: string; id: string } | null>(null);
+  const sync = useRef(new CollaborationSync());
   const cid = conversation || state?.selected || '', draft = drafts[cid] || '';
   const current = state?.conversations.find(c => c.id === cid);
   const skills=skillMap[cid] || [];
   const trigger=dismissed ? null : composerTrigger(draft,cursor);
   const options=trigger?.kind==='members' ? (state?.agents || []).filter(a=>(!current?.members || current.members.includes(a.id)) && a.name.toLowerCase().includes(trigger.query.toLowerCase())).map(a=>({id:a.id,name:a.name,detail:a.personality || a.role})) : (state?.skills || []).filter(s=>(s.id+' '+s.description).toLowerCase().includes((trigger?.query || '').toLowerCase())).map(s=>({id:s.id,name:s.id,detail:s.description}));
   const runs = state?.runs.filter(r => r.conversation === cid) || [], active = runs.filter(runActive);
-  const messages = state?.messages.filter(m => m.conversation === cid) || [];
-  const accept = (next: DemoState) => { setState(old => !old || (next.revision || 0) >= (old.revision || 0) ? next : old); setConversation(old=>old || next.selected); };
+  const messages = state?.messages.filter(m => m.conversation === cid && visibleChatMessage(m,runs)) || [];
+  useAutoGrowInput(input, draft, `${cid}:${visible}`);
+  const accept = (next: DemoState) => { const accepted=sync.current.snapshot(next);if(accepted)setState(accepted);setConversation(old=>old || next.selected); };
   useEffect(() => {
     alive.current = true;
     if (!backend) void backendInfo().then(value => { if (alive.current) setInfo(value); }).catch(e => { if (alive.current) setError(String(e)); });
@@ -47,11 +52,11 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
     const refresh = async () => {
       if (fetching) return; fetching = true;
       try {
-        const [collab, task] = await Promise.all([rpc<{ state: DemoState }>(info, 'load_collaboration'), rpc<Progress>(info, 'load_task_progress')]);
-        if (live) { accept(collab.state); setProgress(task); setPollError(''); }
+        const [collab, task] = await Promise.all([loadCollaboration(info,sync.current.sync), rpc<Progress>(info, 'load_task_progress')]);
+        if (live) {const next=sync.current.update(collab);if(next){setState(next);setConversation(old=>old || next.selected);}setProgress(task);setPollError(''); }
       } catch (e) { if (live) setPollError(String(e)); } finally { fetching = false; }
     };
-    void refresh(); const timer = window.setInterval(() => void refresh(), 600);
+    void refresh(); const timer = window.setInterval(() => void refresh(), 400);
     return () => { live = false; window.clearInterval(timer); };
   }, [info?.port, info?.token, visible]);
   useEffect(() => {
@@ -112,8 +117,7 @@ export function PetChat({ backend }: { backend?: BackendInfo }) {
     <div className="pet-chat-scroll" ref={scroller} onScroll={e => { const el=e.currentTarget; following.current = el.scrollHeight-el.scrollTop-el.clientHeight < 40; }} aria-label="聊天与任务过程">
       {!state && <p className="pet-chat-placeholder">正在连接当前会话…</p>}
       {state && !messages.length && <p className="pet-chat-placeholder">{current?.title || '当前会话'}<br/>可以直接提问，也可以 @ 伙伴安排任务。</p>}
-      {messages.map(message => { const run=runs.find(r=>r.id===message.run);return <article key={message.id} className={`pet-chat-message ${message.sender==='user'?'from-user':''}`}><small>{message.sender==='user'?'你':state?.agents.find(a=>a.id===message.sender)?.name || 'tebb'}</small><StreamText text={message.text || (run && runActive(run) ? run.status || '正在处理…' : '')} active={!!run && runActive(run)} /></article>; })}
-      {runs.filter(r=>!['chat','route','compress'].includes(r.kind || '')).map(run => <details className={`pet-chat-task ${runActive(run)?'is-running':''}`} key={run.id} open><summary><AppIcon name="tasks" />{run.title} · {RUN_LABELS[run.state]}</summary><ol>{run.events.map((event,index)=><li key={index}><span className="tebb-stream-new">{event}</span></li>)}</ol>{runActive(run) && <button onClick={()=>void stop(run.id)}>停止任务</button>}{run.error && <p role="alert">{run.error}</p>}</details>)}
+      {messages.map(message => { const run=runs.find(r=>r.id===message.run);return <article key={message.id} className={`pet-chat-message ${message.sender==='user'?'from-user':''}`}><small>{message.sender==='user'?'你':state?.agents.find(a=>a.id===message.sender)?.name || 'tebb'}</small>{message.sender!=='user' && <RunProgress run={run}/>}<StreamText text={message.text} active={!!run && runActive(run) && !!message.text} />{message.sender!=='user' && run && runActive(run) && <button className="pet-chat-stop" onClick={()=>void stop(run.id)}>停止任务</button>}</article>; })}
       {progress?.enabled && progress.task && <details className="pet-chat-task" open><summary>其他通道 · {progress.task.text}</summary><ol>{progress.task.events?.map((event,index)=><li key={index}><span className="tebb-stream-new">{event}</span></li>)}</ol><StreamText text={progress.task.answer || progress.task.status} active={['running','queued','cancelling'].includes(progress.task.state)} /></details>}
     </div>
     {(error || pollError) && <p className="pet-chat-error" role="alert">{error || pollError}</p>}

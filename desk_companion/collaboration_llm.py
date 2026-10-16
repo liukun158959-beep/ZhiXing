@@ -19,6 +19,7 @@ class CollaborationLLM:
         self.owned = client is None
         self.on_reasoning = None
         self.on_progress = None
+        self.on_tool_delta = None
 
     def __enter__(self): return self
 
@@ -81,6 +82,8 @@ class CollaborationLLM:
                                 slot['id'] = call['id']
                             for field in ('name', 'arguments'):
                                 slot['function'][field] += (call.get('function') or {}).get(field) or ''
+                            if self.on_tool_delta:
+                                self.on_tool_delta(call['index'], slot['function']['name'], slot['function']['arguments'])
                         if choice.get('finish_reason'):
                             finished = True
             if not finished:

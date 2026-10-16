@@ -20,8 +20,8 @@ class Bridge:
         from .pet_preferences import save
         return save(skin, size)
 
-    def load_collaboration(self) -> dict:
-        return self._host.collaboration.snapshot()
+    def load_collaboration(self, since="") -> dict:
+        return self._host.collaboration.snapshot(since=since)
 
     def collaboration_action(self, action: dict) -> dict:
         return self._host.collaboration.action(action)
